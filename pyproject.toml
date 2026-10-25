@@ -7,9 +7,20 @@ name = "autocad-com-mcp"
 version = "1.0.0"
 description = "AutoCAD MCP server using COM interface"
 dependencies = [
-    "mcp>=1.0.0",
+    "mcp>=1.2,<2",
     "pywin32>=306",
 ]
 
+# Cemengal: the test runner, for development only (docs/workflows/test.md)
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+# Cemengal: only the package ships; tests/ stays out of the wheel
+[tool.hatch.build.targets.wheel]
+packages = ["autocad_mcp"]
+
 [project.scripts]
-autocad-com-mcp = "autocad_mcp.server:main"
+autocad-com-mcp = "autocad_mcp.server:run"

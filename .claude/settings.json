@@ -1,0 +1,12 @@
+{
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [ { "type": "command",
+        "command": "python \"$CLAUDE_PROJECT_DIR/../../tools/wiki/wiki_hook.py\" session-start" } ] }
+    ],
+    "PreToolUse": [
+      { "matcher": "Bash", "hooks": [ { "type": "command",
+        "command": "python \"$CLAUDE_PROJECT_DIR/../../tools/wiki/wiki_hook.py\" pre-commit" } ] }
+    ]
+  }
+}

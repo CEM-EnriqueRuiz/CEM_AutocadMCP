@@ -95,45 +95,35 @@ uv pip install -e .
 ### Step 1: Locate Claude Desktop Config
 
 Find your Claude Desktop configuration file:
-- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`; the Microsoft Store app keeps it in `%LOCALAPPDATA%\Claude-Data\claude_<id>\` (older Store versions: `%LOCALAPPDATA%\Packages\Claude_<id>\LocalCache\Roaming\Claude\`)
 - **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
 
-### Step 2: Add MCP Server Configuration
+### Step 2: Register the server (Windows)
 
-Edit the config file to include your AutoCAD MCP server:
-
-```json
-{
-  "mcpServers": {
-    "autocad-mcp": {
-      "command": "python",
-      "args": [
-        "C:\\path\\to\\your\\autocad-mcp-server\\test_script.py"
-      ],
-      "env": {
-        "PYTHONPATH": "C:\\path\\to\\your\\autocad-mcp-server"
-      }
-    }
-  }
-}
-```
-
-**Important**: Replace `C:\\path\\to\\your\\autocad-mcp-server` with your actual project path.
-
-### Step 3: Alternative Configuration (If Installed via pip)
-
-If you installed the package globally:
+Double-click `setup_claude.bat` in the repo folder. It creates `.venv`, installs `mcp<2` and `pywin32`,
+checks it can reach a running AutoCAD / Civil 3D, and adds this to `claude_desktop_config.json`
+(a `.bak-autocad` backup is kept):
 
 ```json
 {
   "mcpServers": {
     "autocad-mcp": {
-      "command": "autocad-mcp",
-      "args": []
+      "command": "D:\\path\\to\\autocad-mcp-server\\.venv\\Scripts\\python.exe",
+      "args": ["-m", "autocad_mcp.server"]
     }
   }
 }
 ```
+
+Optional environment variables (add an `"env"` block):
+- `ACAD_PROGID` – target a specific install when AutoCAD and Civil 3D are both installed, e.g. `AutoCAD.Application.25.1`
+- `ACAD_AUTOSTART=1` – launch AutoCAD if it is not running (off by default; launching can exceed Claude's startup timeout)
+- `ACAD_OP_DELAY` – pause after each COM call in seconds (default 0.05)
+- `ACAD_TOOL_BUDGET` – seconds a listing (`get_drawing_info`, `get_entities`) may run before it stops and returns `truncated` (default 40, inside Claude's 60 s tool timeout)
+
+`setup_claude.bat`, `diag_com.bat` and `live_test.bat` log to `%TEMP%\Cemengal\AutocadMCP\<name>-yyyyMMdd.log`, a folder that prunes itself (files older than 7 days, and the oldest beyond 50 MB). Nothing is written beside the scripts. Clone the repo to a local disk: the setup refuses an ACC (Desktop Connector) folder.
+
+Note: `test_script.py` is a standalone COM smoke test, not the MCP server.
 
 ### Step 4: Restart Claude Desktop
 

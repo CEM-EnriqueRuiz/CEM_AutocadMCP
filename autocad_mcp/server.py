@@ -11,7 +11,55 @@ import math
 from typing import Any, Dict, List, Tuple
 import win32com.client
 import pythoncom
-from win32com.client import constants
+
+import os
+
+ACAD_REGEN_ALL = 1  # AcRegenType.acAllViewports (literal: win32com constants are empty without makepy)
+ACAD_PROGID = os.environ.get("ACAD_PROGID", "")  # force one, e.g. AutoCAD.Application.26
+ACAD_AUTOSTART = os.environ.get("ACAD_AUTOSTART", "0") == "1"
+OP_DELAY = float(os.environ.get("ACAD_OP_DELAY", "0.05"))
+# Cemengal: seconds a listing may run, so a call ends inside Claude Desktop's 60 s (docs/decisions/0005)
+TOOL_BUDGET = float(os.environ.get("ACAD_TOOL_BUDGET", "40"))
+RPC_E_CALL_REJECTED = -2147418111
+RPC_E_SERVERCALL_RETRYLATER = -2147417846
+# Cemengal: one budget for every "AutoCAD is busy" retry (docs/decisions/0002)
+BUSY_RETRIES, BUSY_WAIT = 20, 0.25
+BUSY_MESSAGE = "AutoCAD stayed busy (is a command or dialog open?)"
+# Cemengal: never add a drawing the user did not ask for; say so instead (docs/decisions/0004)
+NO_DRAWING = "No drawing is open in AutoCAD. Ask the user to open or create one in AutoCAD, then retry."
+
+
+def is_busy(error: BaseException) -> bool:
+    """Cemengal: is AutoCAD refusing calls for now (a command, a dialog, starting up, opening a drawing)?
+
+    A refused call is a com_error RPC_E_CALL_REJECTED / RPC_E_SERVERCALL_RETRYLATER, except on the first lookup
+    of a property name: pywin32's late binding (win32com.client.dynamic.CDispatch.__getattr__) swallows the
+    refused GetIDsOfNames and raises AttributeError('<object>.<name>'). For that AttributeError, ask the same
+    object again for the same name: refused, or known by now, means it was the race; unknown means a real
+    missing property, which is not retried (docs/decisions/0002).
+    """
+    if isinstance(error, pythoncom.com_error):
+        return bool(error.args) and error.args[0] in (RPC_E_CALL_REJECTED, RPC_E_SERVERCALL_RETRYLATER)
+    if not isinstance(error, AttributeError):
+        return False
+    frame, tb = None, error.__traceback__
+    while tb is not None:  # the innermost __getattr__ belongs to the dispatch whose lookup failed
+        if tb.tb_frame.f_code.co_name == "__getattr__":
+            frame = tb.tb_frame
+        tb = tb.tb_next
+    if frame is None:
+        return False
+    dispatch, name = frame.f_locals.get("self"), frame.f_locals.get("attr")
+    ole = getattr(dispatch, "__dict__", {}).get("_oleobj_")
+    if ole is None or not isinstance(name, str):
+        return False
+    try:
+        ole.GetIDsOfNames(0, name)
+        return True
+    except pythoncom.com_error as e:
+        return bool(e.args) and e.args[0] in (RPC_E_CALL_REJECTED, RPC_E_SERVERCALL_RETRYLATER)
+    except Exception:
+        return False
 
 import mcp.server.stdio
 import mcp.types as types
@@ -25,6 +73,7 @@ class AutoCADCOMServer:
         self.acad_app = None
         self.doc = None
         self.connected = False
+        self.last_error = ""
 
         # AutoCAD Color Index (ACI) mappings
         self.color_map = {
@@ -65,15 +114,26 @@ class AutoCADCOMServer:
         """Create VARIANT array - the method that works"""
         return win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, [float(x) for x in flat_coords])
 
-    def safe_operation(self, operation_func, delay: float = 1.0):
-        """Safely execute operation with delay - proven to work"""
+    def call_when_ready(self, func):
+        """Cemengal: run one COM call, retrying while AutoCAD is busy (is_busy); raise anything else (0002)."""
+        for attempt in range(BUSY_RETRIES):
+            try:
+                return func()
+            except Exception as e:
+                if attempt == BUSY_RETRIES - 1 or not is_busy(e):
+                    raise
+                time.sleep(BUSY_WAIT)
+
+    def safe_operation(self, operation_func, delay: float = None):
+        """Run a COM operation, retrying while AutoCAD reports it is busy."""
         try:
-            result = operation_func()
-            time.sleep(delay)  # Essential timing delay
-            return result
+            result = self.call_when_ready(operation_func)  # Cemengal: the AttributeError race too (0002)
         except Exception as e:
-            time.sleep(delay)  # Wait even after failures
+            self.last_error = BUSY_MESSAGE if is_busy(e) else str(e)
             return None
+        if OP_DELAY:
+            time.sleep(OP_DELAY)
+        return result
 
     def get_color_index(self, color: str) -> int:
         """Get AutoCAD color index from color name"""
@@ -81,6 +141,14 @@ class AutoCADCOMServer:
             return color
         color_lower = color.lower()
         return self.color_map.get(color_lower, 7)  # Default to white
+
+    def show(self, entity):
+        """Cemengal: redraw one new entity. A Regen of the drawing took 1.7-3 s on a 6,947-layer Civil 3D
+        drawing, and ran once per created line (docs/decisions/0005)."""
+        try:
+            entity.Update()
+        except Exception:
+            pass
 
     def set_entity_color(self, entity, color):
         """Set color for an entity"""
@@ -144,6 +212,12 @@ class AutoCADCOMServer:
                 layer_info["description"]
             )
 
+    def ensure_structure_layer(self, layer_name: str):
+        """Cemengal: create one predefined structure layer, only when a write needs it (docs/decisions/0004)."""
+        for layer_info in self.layer_definitions.values():
+            if layer_info["name"] == layer_name:
+                self.create_or_get_layer(layer_info["name"], layer_info["color"], layer_info["description"])
+
     def get_layer_for_structure_type(self, structure_type: str) -> str:
         """Get appropriate layer name for structure type"""
         structure_type_lower = structure_type.lower()
@@ -151,6 +225,8 @@ class AutoCADCOMServer:
         # Map structure types to layers
         type_mapping = {
             "wall": "walls",
+            "room": "walls",
+            "partition": "walls",
             "door": "doors",
             "window": "windows",
             "furniture": "furniture",
@@ -185,41 +261,78 @@ class AutoCADCOMServer:
         # Default to current layer or create a custom layer
         return "0"  # Default layer
 
-    def connect_to_autocad(self) -> bool:
-        """Connect to AutoCAD via COM"""
+    @staticmethod
+    def candidate_progids() -> List[str]:
+        """Generic ProgID first, then every versioned one, newest first.
+        The generic name can point at an old, uninstalled release (CurVer leftovers)."""
+        if ACAD_PROGID:
+            return [ACAD_PROGID]
+        found = []
         try:
-            # Try to connect to existing AutoCAD instance
-            self.acad_app = win32com.client.GetActiveObject("AutoCAD.Application")
-            self.acad_app.Visible = True
-
-            # Get active document
-            self.doc = self.acad_app.ActiveDocument
-            if self.doc:
-                # Quick test
-                _ = str(self.doc.Name)
-                self.connected = True
-
-                # Ensure structure layers exist
-                self.ensure_structure_layers()
-                return True
-            else:
-                return False
-
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, "") as root:
+                i = 0
+                while True:
+                    try:
+                        name = winreg.EnumKey(root, i)
+                    except OSError:
+                        break
+                    i += 1
+                    low = name.lower()
+                    if low.startswith("autocad.application.") and low != "autocad.application":
+                        found.append(name)
         except Exception:
-            # Fallback: try to create new AutoCAD instance
+            pass
+
+        def ver(n):
             try:
-                self.acad_app = win32com.client.Dispatch("AutoCAD.Application")
-                self.acad_app.Visible = True
-                time.sleep(2)  # Wait for AutoCAD to initialize
+                return tuple(int(x) for x in n.split(".")[2:])
+            except ValueError:
+                return (0,)
+        return ["AutoCAD.Application"] + sorted(found, key=ver, reverse=True)
 
-                self.doc = self.acad_app.Documents.Add()
-                self.connected = True
-
-                # Ensure structure layers exist
-                self.ensure_structure_layers()
-                return True
-            except Exception:
+    def connect_to_autocad(self) -> bool:
+        """Connect to a running AutoCAD / Civil 3D via COM"""
+        self.acad_app = None
+        errors = []
+        progids = self.candidate_progids()
+        for progid in progids:
+            try:
+                self.acad_app = win32com.client.GetActiveObject(progid)
+                self.progid = progid
+                break
+            except Exception as e:
+                errors.append(f"{progid}: {e}")
+        if self.acad_app is None:
+            self.last_error = "No running AutoCAD found (" + "; ".join(errors) + ")"
+            if not ACAD_AUTOSTART:
+                self.connected = False
                 return False
+            try:
+                self.acad_app = win32com.client.Dispatch(progids[1] if len(progids) > 1 else progids[0])
+                self.acad_app.Visible = True
+                time.sleep(5)
+            except Exception as e2:
+                self.last_error = f"Could not start AutoCAD: {e2}"
+                self.connected = False
+                return False
+        try:
+            # Cemengal: retry the startup/open race (0002); with no drawing open (the Start tab) say so,
+            # never Documents.Add() a drawing the user did not ask for (docs/decisions/0004).
+            if self.call_when_ready(lambda: self.acad_app.Documents.Count) == 0:
+                self.last_error = NO_DRAWING
+                self.connected = False
+                return False
+            self.doc = self.call_when_ready(lambda: self.acad_app.ActiveDocument)
+            _ = self.call_when_ready(lambda: str(self.doc.Name))
+            self.connected = True
+            # Cemengal: no ensure_structure_layers() here. Connecting is a read and must not add
+            # layers to the user's drawing; a write creates the one it needs (docs/decisions/0004).
+            return True
+        except Exception as e:
+            self.last_error = BUSY_MESSAGE if is_busy(e) else f"Connected to AutoCAD but no usable drawing: {e}"
+            self.connected = False
+            return False
 
     def ensure_connection(self) -> bool:
         """Ensure we have a valid connection to AutoCAD"""
@@ -227,16 +340,20 @@ class AutoCADCOMServer:
             return self.connect_to_autocad()
 
         try:
-            _ = str(self.doc.Name)
+            # follow the drawing the user is looking at
+            self.doc = self.call_when_ready(lambda: self.acad_app.ActiveDocument)  # Cemengal: the race (0002)
+            _ = self.call_when_ready(lambda: str(self.doc.Name))
             return True
         except Exception:
             self.connected = False
             return self.connect_to_autocad()
 
-    def get_drawing_info(self) -> Dict[str, Any]:
+    def get_drawing_info(self, max_layers: int = 100) -> Dict[str, Any]:
         """Get information about the current drawing"""
+        # Cemengal: max_layers and the time budget; listing 6,947 layers took ~5 min (docs/decisions/0005)
+        deadline = time.monotonic() + TOOL_BUDGET
         if not self.ensure_connection():
-            return {"error": "Not connected to AutoCAD"}
+            return self.not_connected()
 
         try:
             doc_info = {
@@ -248,6 +365,15 @@ class AutoCADCOMServer:
                 "total_layers": 0,
                 "available_layers": []
             }
+
+            try:
+                doc_info["application"] = str(self.acad_app.Name)
+                doc_info["version"] = str(self.acad_app.Version)
+                doc_info["com_progid"] = getattr(self, "progid", "")
+                doc_info["open_documents"] = [str(self.acad_app.Documents.Item(i).Name)
+                                              for i in range(self.acad_app.Documents.Count)]
+            except:
+                pass
 
             try:
                 doc_info["filename"] = str(self.doc.Name)
@@ -281,7 +407,11 @@ class AutoCADCOMServer:
                 doc_info["total_layers"] = int(layers.Count)
 
                 layer_list = []
-                for i in range(layers.Count):
+                doc_info["layers_truncated"] = layers.Count > max_layers
+                for i in range(min(layers.Count, max_layers)):
+                    if time.monotonic() >= deadline:
+                        doc_info["layers_truncated"] = True
+                        break
                     try:
                         layer = layers.Item(i)
                         layer_info = {
@@ -305,8 +435,10 @@ class AutoCADCOMServer:
 
     def get_entities(self, max_entities: int = None) -> Dict[str, Any]:
         """Get list of ALL entities in the drawing (or up to max_entities if specified)"""
+        deadline = time.monotonic() + TOOL_BUDGET  # Cemengal: ~65 ms per entity over COM (docs/decisions/0005)
+        truncated = False
         if not self.ensure_connection():
-            return {"error": "Not connected to AutoCAD"}
+            return self.not_connected()
 
         try:
             model_space = self.doc.ModelSpace
@@ -331,6 +463,9 @@ class AutoCADCOMServer:
                 batch_end = min(processed + batch_size, count)
 
                 for i in range(processed, batch_end):
+                    if time.monotonic() >= deadline:  # Cemengal: stop inside the budget (0005)
+                        truncated = True
+                        break
                     try:
                         entity = model_space.Item(i)
                         entity_info = {
@@ -372,6 +507,8 @@ class AutoCADCOMServer:
                         continue
 
                 processed = batch_end
+                if truncated:
+                    break
 
                 # Add small delay for very large datasets to prevent COM timeout
                 if processed % 500 == 0 and processed < count:
@@ -390,7 +527,8 @@ class AutoCADCOMServer:
                 "entities_by_layer": entities_by_layer,
                 "total_count": total_count,
                 "returned_count": len(entities),
-                "layer_summary": {layer: len(ents) for layer, ents in entities_by_layer.items()}
+                "layer_summary": {layer: len(ents) for layer, ents in entities_by_layer.items()},
+                "truncated": truncated  # Cemengal: true when the time budget stopped the listing (0005)
             }
         except Exception as e:
             return {"error": f"Failed to get entities: {str(e)}"}
@@ -400,7 +538,7 @@ class AutoCADCOMServer:
                          custom_layer: str = None, label: str = None) -> Dict[str, Any]:
         """Create a structure with automatic layer assignment and optional labeling"""
         if not self.ensure_connection():
-            return {"error": "Not connected to AutoCAD"}
+            return self.not_connected()
 
         try:
             # Determine layer
@@ -410,6 +548,7 @@ class AutoCADCOMServer:
                 self.create_or_get_layer(layer_name, color or "white", f"Custom layer for {structure_type}")
             else:
                 layer_name = self.get_layer_for_structure_type(structure_type)
+                self.ensure_structure_layer(layer_name)  # Cemengal: lazily (docs/decisions/0004)
 
             # Set active layer
             original_layer = None
@@ -597,6 +736,7 @@ class AutoCADCOMServer:
             original_layer = None
             try:
                 original_layer = str(self.doc.ActiveLayer.Name)
+                self.ensure_structure_layer("ANNOTATION")  # Cemengal: lazily (docs/decisions/0004)
                 self.set_current_layer("ANNOTATION")
             except:
                 pass
@@ -617,19 +757,22 @@ class AutoCADCOMServer:
             return {"error": f"Failed to add label: {str(e)}"}
 
     # Include all other existing methods (create_line, create_circle, etc.) from the original code
-    # [Previous methods remain the same - truncated for brevity]
 
     def delete_entity_by_handle(self, handle: str) -> Dict[str, Any]:
         """Delete a specific entity by its handle"""
         if not self.ensure_connection():
-            return {"error": "Not connected to AutoCAD"}
+            return self.not_connected()
 
         try:
             model_space = self.doc.ModelSpace
 
             # Find entity by handle
             entity = None
-            for i in range(model_space.Count):
+            try:
+                entity = self.doc.HandleToObject(str(handle))
+            except Exception:
+                entity = None
+            for i in (range(model_space.Count) if entity is None else []):
                 try:
                     obj = model_space.Item(i)
                     if str(obj.Handle) == handle:
@@ -643,7 +786,7 @@ class AutoCADCOMServer:
 
             def delete_operation():
                 entity.Delete()
-                self.doc.Regen(constants.acActiveViewport)
+                self.doc.Regen(ACAD_REGEN_ALL)
                 return True
 
             result = self.safe_operation(delete_operation)
@@ -657,8 +800,140 @@ class AutoCADCOMServer:
         except Exception as e:
             return {"error": f"Failed to delete entity: {str(e)}"}
 
-    # [Include all other existing methods - create_line, create_circle, delete methods, etc.]
-    # [They remain unchanged from the original code]
+    # ---- helpers ---------------------------------------------------------
+
+    def not_connected(self) -> Dict[str, Any]:
+        if self.last_error == NO_DRAWING:  # Cemengal: exactly that, so the agent asks the user (0004)
+            return {"error": NO_DRAWING}
+        msg = "Not connected to AutoCAD. Open AutoCAD or Civil 3D with a drawing, then retry."
+        if self.last_error:
+            msg += f" (detail: {self.last_error})"
+        return {"error": msg}
+
+    def _snapshot_entities(self) -> List[Any]:
+        """Copy ModelSpace into a list first so deleting doesn't shift indexes."""
+        ms = self.doc.ModelSpace
+        items = []
+        for i in range(ms.Count):
+            try:
+                items.append(ms.Item(i))
+            except Exception:
+                continue
+        return items
+
+    def _delete_where(self, predicate, what: str) -> Dict[str, Any]:
+        if not self.ensure_connection():
+            return self.not_connected()
+        try:
+            deleted, failed = [], []
+            for ent in self._snapshot_entities():
+                try:
+                    if not predicate(ent):
+                        continue
+                    handle = str(ent.Handle)
+                    ent.Delete()
+                    deleted.append(handle)
+                except Exception as e:
+                    failed.append(str(e))
+            try:
+                self.doc.Regen(ACAD_REGEN_ALL)
+            except Exception:
+                pass
+            result = {"success": True, "deleted_count": len(deleted), "deleted_handles": deleted,
+                      "message": f"Deleted {len(deleted)} entities ({what})"}
+            if failed:
+                result["failed_count"] = len(failed)
+                result["first_error"] = failed[0]
+            return result
+        except Exception as e:
+            return {"error": f"Failed to delete entities ({what}): {e}"}
+
+    # ---- previously advertised but missing tools -------------------------
+
+    def delete_entities_by_handles(self, handles: List[str]) -> Dict[str, Any]:
+        # Cemengal: look each handle up instead of scanning model space (~16 ms per entity over COM),
+        # and delete only what model space owns (docs/decisions/0005)
+        if not self.ensure_connection():
+            return self.not_connected()
+        wanted = sorted({str(h).upper() for h in handles})
+        deleted, not_found, failed = [], [], []
+        try:
+            space_id = self.doc.ModelSpace.ObjectID
+        except Exception as e:
+            return {"error": f"Failed to delete entities: {e}"}
+        for handle in wanted:
+            try:
+                ent = self.doc.HandleToObject(handle)
+                if ent.OwnerID != space_id:
+                    not_found.append(handle)
+                    continue
+            except Exception:
+                not_found.append(handle)
+                continue
+            try:
+                ent.Delete()
+                deleted.append(handle)
+            except Exception as e:
+                failed.append(str(e))
+        result = {"success": True, "deleted_count": len(deleted), "deleted_handles": deleted,
+                  "not_found": not_found, "message": f"Deleted {len(deleted)} entities ({len(wanted)} handles)"}
+        if failed:
+            result["failed_count"] = len(failed)
+            result["first_error"] = failed[0]
+        return result
+
+    def delete_entities_by_type(self, entity_type: str) -> Dict[str, Any]:
+        t = entity_type.lower()
+        return self._delete_where(lambda e: str(e.ObjectName).lower() == t, f"type {entity_type}")
+
+    def delete_entities_by_layer(self, layer_name: str) -> Dict[str, Any]:
+        l = layer_name.lower()
+        return self._delete_where(lambda e: str(e.Layer).lower() == l, f"layer {layer_name}")
+
+    def delete_entities_by_color(self, color) -> Dict[str, Any]:
+        idx = self.get_color_index(int(color) if str(color).isdigit() else color)
+        return self._delete_where(lambda e: int(e.Color) == idx, f"color {color}")
+
+    def delete_entities_by_type_and_color(self, entity_type: str, color) -> Dict[str, Any]:
+        t = entity_type.lower()
+        idx = self.get_color_index(int(color) if str(color).isdigit() else color)
+        return self._delete_where(lambda e: str(e.ObjectName).lower() == t and int(e.Color) == idx,
+                                  f"type {entity_type}, color {color}")
+
+    def delete_last_entities(self, count: int = 1) -> Dict[str, Any]:
+        if not self.ensure_connection():
+            return self.not_connected()
+        last = {str(e.Handle) for e in self._snapshot_entities()[-max(int(count), 0):]} if count > 0 else set()
+        return self._delete_where(lambda e: str(e.Handle) in last, f"last {count}")
+
+    def delete_all_entities(self, confirm: bool = False) -> Dict[str, Any]:
+        if confirm is not True:
+            return {"error": "Refusing to delete everything: pass confirm=true"}
+        return self._delete_where(lambda e: True, "all")
+
+    def undo_last_operation(self) -> Dict[str, Any]:
+        if not self.ensure_connection():
+            return self.not_connected()
+        try:
+            self.doc.SendCommand("_.U ")
+            return {"success": True, "message": "Sent U (undo) to AutoCAD"}
+        except Exception as e:
+            return {"error": f"Undo failed: {e}"}
+
+    def change_entity_color(self, handle: str, color) -> Dict[str, Any]:
+        if not self.ensure_connection():
+            return self.not_connected()
+        try:
+            ent = self.doc.HandleToObject(str(handle))
+        except Exception:
+            return {"error": f"Entity with handle {handle} not found"}
+        try:
+            ent.Color = self.get_color_index(int(color) if str(color).isdigit() else color)
+            ent.Update()
+        except Exception as e:
+            return {"error": f"Failed to change colour: {e}"}
+        return {"success": True, "handle": str(handle), "color": color}
+
 
     def setup_tools(self):
         """Set up MCP tools for AutoCAD"""
@@ -669,16 +944,24 @@ class AutoCADCOMServer:
             return [
                 types.Tool(
                     name="get_drawing_info",
-                    description="Get information about the current AutoCAD drawing including layers",
+                    description="Get information about the current AutoCAD drawing including layers "
+                                "(the first max_layers; layers_truncated says when there are more)",
                     inputSchema={
                         "type": "object",
-                        "properties": {},
+                        "properties": {
+                            "max_layers": {  # Cemengal: docs/decisions/0005
+                                "type": "integer",
+                                "description": "Maximum number of layers to list (default 100)",
+                                "minimum": 1
+                            }
+                        },
                         "required": []
                     }
                 ),
                 types.Tool(
                     name="get_entities",
-                    description="Get list of ALL entities in the current drawing with their properties and layer information",
+                    description="Get list of ALL entities in the current drawing with their properties and layer information "
+                                "(stops after about 40 s on a large drawing; truncated says so)",
                     inputSchema={
                         "type": "object",
                         "properties": {
@@ -996,20 +1279,6 @@ class AutoCADCOMServer:
                     }
                 ),
                 types.Tool(
-                    name="delete_entities_by_color",
-                    description="Delete all entities with a specific color",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "color": {
-                                "type": "string",
-                                "description": "Color name (red, blue, green, etc.) or ACI number"
-                            }
-                        },
-                        "required": ["color"]
-                    }
-                ),
-                types.Tool(
                     name="delete_entities_by_type_and_color",
                     description="Delete entities of a specific type AND color (e.g., only green text, only red lines)",
                     inputSchema={
@@ -1101,7 +1370,7 @@ class AutoCADCOMServer:
             """Handle tool calls"""
             try:
                 if name == "get_drawing_info":
-                    result = self.get_drawing_info()
+                    result = self.get_drawing_info(arguments.get("max_layers", 100))
                 elif name == "get_entities":
                     max_entities = arguments.get("max_entities", None)
                     result = self.get_entities(max_entities)
@@ -1121,9 +1390,15 @@ class AutoCADCOMServer:
                         arguments.get("description", "")
                     )
                     result = {"success": success, "layer_name": arguments["layer_name"]}
+                    if not success:  # Cemengal: say why, instead of a bare false
+                        result.update(self.not_connected() if not self.connected
+                                      else {"error": f"Could not create layer {arguments['layer_name']}"})
                 elif name == "set_current_layer":
                     success = self.set_current_layer(arguments["layer_name"])
                     result = {"success": success, "layer_name": arguments["layer_name"]}
+                    if not success:  # Cemengal: say why, instead of a bare false
+                        result.update(self.not_connected() if not self.connected
+                                      else {"error": f"Layer {arguments['layer_name']} not found"})
                 elif name == "create_line":
                     color = arguments.get("color", "white")
                     thickness = arguments.get("thickness", 0.0)
@@ -1169,7 +1444,6 @@ class AutoCADCOMServer:
                     result = self.change_entity_color(arguments["handle"], arguments["color"])
                 elif name == "zoom_extents":
                     result = self.zoom_extents()
-                # [Include all other existing tool handlers]
                 else:
                     result = {"error": f"Unknown tool: {name}"}
 
@@ -1183,7 +1457,7 @@ class AutoCADCOMServer:
         str, Any]:
         """Create a line with optional color and thickness"""
         if not self.ensure_connection():
-            return {"error": "Not connected to AutoCAD"}
+            return self.not_connected()
 
         try:
             handles = []
@@ -1195,7 +1469,7 @@ class AutoCADCOMServer:
                 model_space = self.doc.ModelSpace
                 line = model_space.AddLine(start_point, end_point)
                 self.set_entity_color(line, color)
-                self.doc.Regen(constants.acActiveViewport)
+                self.show(line)  # Cemengal: not a Regen per entity (docs/decisions/0005)
                 return line
 
             main_line = self.safe_operation(line_operation)
@@ -1220,7 +1494,7 @@ class AutoCADCOMServer:
                         model_space = self.doc.ModelSpace
                         parallel_line = model_space.AddLine(start_p, end_p)
                         self.set_entity_color(parallel_line, color)
-                        self.doc.Regen(constants.acActiveViewport)
+                        self.show(parallel_line)  # Cemengal: not a Regen per entity (docs/decisions/0005)
                         return parallel_line
 
                     parallel_line = self.safe_operation(parallel_line_operation)
@@ -1238,7 +1512,7 @@ class AutoCADCOMServer:
                         model_space = self.doc.ModelSpace
                         cap = model_space.AddLine(start_p, start_par)
                         self.set_entity_color(cap, color)
-                        self.doc.Regen(constants.acActiveViewport)
+                        self.show(cap)  # Cemengal: not a Regen per entity (docs/decisions/0005)
                         return cap
 
                     def cap2_operation():
@@ -1248,7 +1522,7 @@ class AutoCADCOMServer:
                         model_space = self.doc.ModelSpace
                         cap = model_space.AddLine(end_p, end_par)
                         self.set_entity_color(cap, color)
-                        self.doc.Regen(constants.acActiveViewport)
+                        self.show(cap)  # Cemengal: not a Regen per entity (docs/decisions/0005)
                         return cap
 
                     cap1 = self.safe_operation(cap1_operation)
@@ -1290,7 +1564,7 @@ class AutoCADCOMServer:
         str, Any]:
         """Create a circle with optional color and thickness"""
         if not self.ensure_connection():
-            return {"error": "Not connected to AutoCAD"}
+            return self.not_connected()
 
         try:
             handles = []
@@ -1301,7 +1575,7 @@ class AutoCADCOMServer:
                 model_space = self.doc.ModelSpace
                 circle = model_space.AddCircle(center_point, float(radius))
                 self.set_entity_color(circle, color)
-                self.doc.Regen(constants.acActiveViewport)
+                self.show(circle)  # Cemengal: not a Regen per entity (docs/decisions/0005)
                 return circle
 
             main_circle = self.safe_operation(circle_operation)
@@ -1319,7 +1593,7 @@ class AutoCADCOMServer:
                     model_space = self.doc.ModelSpace
                     outer_circle = model_space.AddCircle(center_point, float(radius + thickness / 2))
                     self.set_entity_color(outer_circle, color)
-                    self.doc.Regen(constants.acActiveViewport)
+                    self.show(outer_circle)  # Cemengal: not a Regen per entity (docs/decisions/0005)
                     return outer_circle
 
                 def inner_circle_operation():
@@ -1329,7 +1603,7 @@ class AutoCADCOMServer:
                     inner_radius = max(0.1, radius - thickness / 2)
                     inner_circle = model_space.AddCircle(center_point, float(inner_radius))
                     self.set_entity_color(inner_circle, color)
-                    self.doc.Regen(constants.acActiveViewport)
+                    self.show(inner_circle)  # Cemengal: not a Regen per entity (docs/decisions/0005)
                     return inner_circle
 
                 outer_circle = self.safe_operation(outer_circle_operation)
@@ -1361,7 +1635,7 @@ class AutoCADCOMServer:
                          thickness: float = 0.0) -> Dict[str, Any]:
         """Create a rectangle with optional color and thickness"""
         if not self.ensure_connection():
-            return {"error": "Not connected to AutoCAD"}
+            return self.not_connected()
 
         try:
             x1, y1 = float(corner1[0]), float(corner1[1])
@@ -1397,7 +1671,7 @@ class AutoCADCOMServer:
         str, Any]:
         """Create text with optional color"""
         if not self.ensure_connection():
-            return {"error": "Not connected to AutoCAD"}
+            return self.not_connected()
 
         try:
             def text_operation():
@@ -1407,7 +1681,7 @@ class AutoCADCOMServer:
                 model_space = self.doc.ModelSpace
                 text_obj = model_space.AddText(str(text), text_point, float(height))
                 self.set_entity_color(text_obj, color)
-                self.doc.Regen(constants.acActiveViewport)
+                self.show(text_obj)  # Cemengal: not a Regen per entity (docs/decisions/0005)
                 return text_obj
 
             text_obj = self.safe_operation(text_operation)
@@ -1439,7 +1713,7 @@ class AutoCADCOMServer:
                    thickness: float = 0.0) -> Dict[str, Any]:
         """Create an arc with optional color and thickness"""
         if not self.ensure_connection():
-            return {"error": "Not connected to AutoCAD"}
+            return self.not_connected()
 
         try:
             handles = []
@@ -1453,7 +1727,7 @@ class AutoCADCOMServer:
                 model_space = self.doc.ModelSpace
                 arc = model_space.AddArc(center_point, float(radius), start_rad, end_rad)
                 self.set_entity_color(arc, color)
-                self.doc.Regen(constants.acActiveViewport)
+                self.show(arc)  # Cemengal: not a Regen per entity (docs/decisions/0005)
                 return arc
 
             main_arc = self.safe_operation(arc_operation)
@@ -1474,7 +1748,7 @@ class AutoCADCOMServer:
                     model_space = self.doc.ModelSpace
                     inner_arc = model_space.AddArc(center_point, float(inner_radius), start_rad, end_rad)
                     self.set_entity_color(inner_arc, color)
-                    self.doc.Regen(constants.acActiveViewport)
+                    self.show(inner_arc)  # Cemengal: not a Regen per entity (docs/decisions/0005)
                     return inner_arc
 
                 def outer_arc_operation():
@@ -1483,7 +1757,7 @@ class AutoCADCOMServer:
                     model_space = self.doc.ModelSpace
                     outer_arc = model_space.AddArc(center_point, float(outer_radius), start_rad, end_rad)
                     self.set_entity_color(outer_arc, color)
-                    self.doc.Regen(constants.acActiveViewport)
+                    self.show(outer_arc)  # Cemengal: not a Regen per entity (docs/decisions/0005)
                     return outer_arc
 
                 try:
@@ -1547,7 +1821,7 @@ class AutoCADCOMServer:
     def zoom_extents(self) -> Dict[str, Any]:
         """Zoom to show all objects"""
         if not self.ensure_connection():
-            return {"error": "Not connected to AutoCAD"}
+            return self.not_connected()
 
         try:
             self.acad_app.ZoomExtents()
@@ -1560,8 +1834,7 @@ async def main():
     """Main entry point"""
     autocad_server = AutoCADCOMServer()
 
-    # Test AutoCAD connection
-    autocad_server.connect_to_autocad()
+    # Connect lazily on the first tool call so the MCP handshake never waits on AutoCAD
 
     autocad_server.setup_tools()
 
@@ -1581,5 +1854,9 @@ async def main():
         )
 
 
-if __name__ == "__main__":
+def run():
     asyncio.run(main())
+
+
+if __name__ == "__main__":
+    run()
