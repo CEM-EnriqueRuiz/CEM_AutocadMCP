@@ -24,7 +24,7 @@ Search with qmd when the index is not enough (`qmd query -c cem_autocadmcp "..."
   unless `ACAD_AUTOSTART=1`. Find AutoCAD through every registered `AutoCAD.Application.*` ProgID, not only the
   generic one ([0002](../../../docs/decisions/0002-lazy-connection-and-progid-discovery.md)).
 - Nothing writes under ACC (any path with an `ACCDocs` segment) or beside its own script. Logs and temporary
-  artefacts go through `autocad_mcp.temp_files.TempFolder` to `%TEMP%\Cemengal\AutocadMCP\`, which prunes itself;
+  artefacts go through `autocad_mcp.temp_files.TempFolder` to `%TEMP%\Cemengal\AutocadMCP\`, which prunes itself and never follows or deletes through a reparse point;
   `tests/test_no_acc_writes.py` guards it ([0003](../../../docs/decisions/0003-no-writes-under-acc-or-beside-scripts.md),
   root [0031](../../../../../docs/decisions/0031-nothing-writes-under-acc-logs-in-local-temp.md)).
 - A read never modifies the drawing, and no tool saves or creates one: with no drawing open, answer

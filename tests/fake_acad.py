@@ -52,12 +52,18 @@ class FakeEntity:
     def Update(self):
         self.updates += 1
 
+    def Explode(self):
+        raise AssertionError("an entity was exploded")
+
 
 class FakeModelSpace:
     ObjectID = 1
+    Name, Origin, IsXRef, IsLayout = "*Model_Space", (0.0, 0.0, 0.0), False, True
 
     def __init__(self, doc):
-        self.doc, self.items, self.handles, self.item_calls = doc, [], itertools.count(0x7200), 0
+        # one handle sequence per drawing, shared by model space, paper spaces and block definitions
+        self.doc, self.items, self.item_calls = doc, [], 0
+        self.handles = doc.__dict__.setdefault("handles", itertools.count(0x7200))
 
     @property
     def Count(self):
@@ -84,6 +90,44 @@ class FakeModelSpace:
     def AddText(self, text, point, height):
         return self._add("AcDbText", TextString=text, InsertionPoint=tuple(point.value), Height=height)
 
+    def add(self, object_name, layer="0", **props):
+        """Put an entity in this space with exactly the COM properties given (for the export tests)."""
+        entity = FakeEntity(self, object_name, layer, **props)
+        self.items.append(entity)
+        return entity
+
+
+class FakeBlock(FakeModelSpace):
+    """A block table record: a paper space or a block definition."""
+    object_ids = itertools.count(10)
+
+    def __init__(self, doc, name, origin=(0.0, 0.0, 0.0), is_xref=False, path=""):
+        super().__init__(doc)
+        self.Name, self.Origin, self.IsXRef, self.Path = name, origin, is_xref, path
+        self.IsLayout, self.ObjectID = name.lower().startswith("*paper_space"), next(self.object_ids)
+
+
+class FakeLayout:
+    def __init__(self, name, block, tab_order, model=False):
+        self.Name, self.Block, self.TabOrder, self.ModelType = name, block, tab_order, model
+
+
+class FakeCollection:
+    def __init__(self, items=()):
+        self.items = list(items)
+
+    @property
+    def Count(self):
+        return len(self.items)
+
+    def Item(self, key):
+        if isinstance(key, int):
+            return self.items[key]
+        for item in self.items:
+            if item.Name.lower() == str(key).lower():
+                return item
+        raise Exception(f"Key not found: {key}")
+
 
 class FakeDocument:
     def __init__(self, name="X-C3D.dwg", layers=("0", "C-ROAD")):
@@ -92,6 +136,42 @@ class FakeDocument:
         self.ActiveLayer = self.Layers.Item("0")
         self.ModelSpace = FakeModelSpace(self)
         self.commands, self.regens = [], 0
+        self.writes = []  # Save, SaveAs, Close, PurgeAll: a read must never call them (0004)
+        self.Layouts = FakeCollection([FakeLayout("Model", self.ModelSpace, 0, model=True)])
+        self.Blocks = FakeCollection([self.ModelSpace])
+        self.variables = {"INSUNITS": 4, "MEASUREMENT": 1, "ACADVER": "26.0s (LMS Tech)"}
+
+    @property
+    def FullName(self):
+        return f"{self.Path}\{self.Name}" if self.Path else ""
+
+    def GetVariable(self, name):
+        return self.variables[name.upper()]
+
+    def add_layout(self, name, tab_order):
+        """A paper space layout; returns its block, to add entities to."""
+        index = sum(1 for b in self.Blocks.items if b.Name.lower().startswith("*paper_space"))
+        block = FakeBlock(self, "*Paper_Space" + (str(index - 1) if index else ""))
+        self.Blocks.items.append(block)
+        self.Layouts.items.append(FakeLayout(name, block, tab_order))
+        return block
+
+    def add_block(self, name, **kwargs):
+        block = FakeBlock(self, name, **kwargs)
+        self.Blocks.items.append(block)
+        return block
+
+    def Save(self):
+        self.writes.append("Save")
+
+    def SaveAs(self, *args):
+        self.writes.append("SaveAs")
+
+    def Close(self, *args):
+        self.writes.append("Close")
+
+    def PurgeAll(self):
+        self.writes.append("PurgeAll")
 
     def Regen(self, which):
         self.regens += 1

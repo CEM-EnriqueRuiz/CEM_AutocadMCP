@@ -63,6 +63,8 @@ def is_busy(error: BaseException) -> bool:
 
 import mcp.server.stdio
 import mcp.types as types
+# Cemengal: the complete read-only export, run in the background (docs/decisions/0006)
+from autocad_mcp.export import ExportJobs, Limits
 from mcp.server import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
 
@@ -74,6 +76,7 @@ class AutoCADCOMServer:
         self.doc = None
         self.connected = False
         self.last_error = ""
+        self.exports = ExportJobs(is_busy=is_busy)  # Cemengal: docs/decisions/0006
 
         # AutoCAD Color Index (ACI) mappings
         self.color_map = {
@@ -802,6 +805,37 @@ class AutoCADCOMServer:
 
     # ---- helpers ---------------------------------------------------------
 
+    # Cemengal: export_drawing, get_export_status, cancel_export (docs/decisions/0006)
+    def export_drawing(self, document: str = None, max_entities: int = None, max_seconds: float = None,
+                       max_bytes: int = None, block_depth: int = None) -> Dict[str, Any]:
+        """Start a background export of an open drawing (the active one, or the one named); returns at once."""
+        if not self.ensure_connection():
+            return self.not_connected()
+        try:
+            if document:
+                docs = self.acad_app.Documents
+                opened = [docs.Item(i) for i in range(docs.Count)]
+                wanted = str(document).lower()
+                matches = [d for d in opened if wanted in (str(d.Name).lower(), str(d.FullName).lower())]
+                if not matches:
+                    return {"error": f"No open drawing is named {document}",
+                            "open_documents": [str(d.Name) for d in opened]}
+                doc = matches[0]
+            else:
+                doc = self.doc
+            name, full_name = str(doc.Name), str(doc.FullName or "")
+        except Exception as e:
+            return {"error": f"Could not read the open drawings: {e}"}
+        limits = Limits.given(max_entities=max_entities, max_seconds=max_seconds, max_bytes=max_bytes,
+                              block_depth=block_depth)
+        return self.exports.start(self.acad_app, name, full_name, limits)  # marshalled once accepted (QA-4)
+
+    def get_export_status(self, job_id: str) -> Dict[str, Any]:
+        return self.exports.status(job_id)
+
+    def cancel_export(self, job_id: str) -> Dict[str, Any]:
+        return self.exports.cancel(job_id)
+
     def not_connected(self) -> Dict[str, Any]:
         if self.last_error == NO_DRAWING:  # Cemengal: exactly that, so the agent asks the user (0004)
             return {"error": NO_DRAWING}
@@ -1362,6 +1396,59 @@ class AutoCADCOMServer:
                         "properties": {},
                         "required": []
                     }
+                ),
+                # Cemengal: the complete read-only export, in the background (docs/decisions/0006)
+                types.Tool(
+                    name="export_drawing",
+                    description="Start a complete, read-only export of an open drawing to one JSON file: model "
+                                "space and every layout with its viewports, all entities with their geometry, "
+                                "TEXT/MTEXT, leaders, dimensions (measurement, override and displayed text), "
+                                "block inserts with attributes and the referenced block definitions, and a count "
+                                "by type of what was read or skipped and why. Returns at once with job_id and the "
+                                "output path; follow it with get_export_status. A limit ends the job as failed, "
+                                "never as a shorter file. Exports are temporary files under "
+                                "%TEMP%\\Cemengal\\AutocadMCP\\exports, which keeps the last 3 exports for 7 days "
+                                "at most, whatever their size; the newest export (and the newest complete one) "
+                                "is never pruned.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "document": {
+                                "type": "string",
+                                "description": "Name or full path of one of the open drawings (default: the active one)"
+                            },
+                            "max_entities": {"type": "integer", "minimum": 1,
+                                             "description": "Fail beyond this many entities (default 200000)"},
+                            "max_seconds": {"type": "number", "minimum": 1,
+                                            "description": "Fail after this many seconds (default 3600)"},
+                            "max_bytes": {"type": "integer", "minimum": 1,
+                                          "description": "Fail when the file would exceed this size (default 100 MB)"},
+                            "block_depth": {"type": "integer", "minimum": 0,
+                                            "description": "How deep to follow nested block definitions (default 4)"}
+                        },
+                        "required": []
+                    }
+                ),
+                types.Tool(
+                    name="get_export_status",
+                    description="State of an export_drawing job (running, done, failed or cancelled), entities "
+                                "read and total per layout, elapsed time, speed, the output path and, on failure, "
+                                "the reason",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {"job_id": {"type": "string", "description": "From export_drawing"}},
+                        "required": ["job_id"]
+                    }
+                ),
+                types.Tool(
+                    name="cancel_export",
+                    description="Ask a running export_drawing job to stop; it ends as cancelled and keeps a "
+                                ".failed.json with the reason",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {"job_id": {"type": "string", "description": "From export_drawing"}},
+                        "required": ["job_id"]
+                    }
                 )
             ]
 
@@ -1444,6 +1531,14 @@ class AutoCADCOMServer:
                     result = self.change_entity_color(arguments["handle"], arguments["color"])
                 elif name == "zoom_extents":
                     result = self.zoom_extents()
+                elif name == "export_drawing":  # Cemengal: docs/decisions/0006
+                    result = self.export_drawing(arguments.get("document"), arguments.get("max_entities"),
+                                                 arguments.get("max_seconds"), arguments.get("max_bytes"),
+                                                 arguments.get("block_depth"))
+                elif name == "get_export_status":
+                    result = self.get_export_status(arguments["job_id"])
+                elif name == "cancel_export":
+                    result = self.cancel_export(arguments["job_id"])
                 else:
                     result = {"error": f"Unknown tool: {name}"}
 

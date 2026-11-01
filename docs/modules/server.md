@@ -1,9 +1,9 @@
 ---
 title: "server — autocad_mcp/server.py, the MCP server"
 type: module
-updated: 2026-10-24
+updated: 2026-11-01
 sources: [autocad_mcp/server.py, pyproject.toml, tests/test_tool_contract.py]
-related: [../concepts/com-connection.md, ../decisions/0002-lazy-connection-and-progid-discovery.md, ../decisions/0004-reads-never-modify-the-drawing.md, ../decisions/0005-every-call-ends-inside-the-host-timeout.md, temp-files.md]
+related: [export.md, ../concepts/com-connection.md, ../decisions/0002-lazy-connection-and-progid-discovery.md, ../decisions/0004-reads-never-modify-the-drawing.md, ../decisions/0005-every-call-ends-inside-the-host-timeout.md, temp-files.md]
 tags: [module, mcp, com]
 ---
 
@@ -30,7 +30,7 @@ Inside a method, COM calls that may meet a busy AutoCAD go through `safe_operati
 The handler serialises the dict as one `TextContent`. Unknown names are refused by `mcp` itself (the tool is not
 listed) before the handler's own `Unknown tool` branch.
 
-## Tools (21)
+## Tools (24)
 
 | Group | Tools | Notes |
 |---|---|---|
@@ -40,6 +40,7 @@ listed) before the handler's own `Unknown tool` branch.
 | Edit | `change_entity_color`, `zoom_extents`, `undo_last_operation` | undo sends AutoCAD's `U` with `SendCommand`: it undoes whatever ran last |
 | Delete | `delete_entity_by_handle`, `delete_entities_by_handles` | by `HandleToObject`, model space only |
 | Bulk delete | `delete_entities_by_type`, `_by_layer`, `_by_color`, `_by_type_and_color`, `delete_last_entities`, `delete_all_entities(confirm)` | scan model space (`_snapshot_entities`, `_delete_where`); slow on large drawings |
+| Export | `export_drawing(document?, max_entities?, max_seconds?, max_bytes?, block_depth?)`, `get_export_status(job_id)`, `cancel_export(job_id)` | a background job, read only, one JSON under `%TEMP%\Cemengal\AutocadMCP\exports\`; status and cancel need no connection ([export](export.md), [0006](../decisions/0006-background-export-jobs.md)) |
 
 `create_structure` maps a type to a predefined layer (`get_layer_for_structure_type`: wall → `WALLS`,
 door → `DOORS`, …), creates that one layer if missing (`ensure_structure_layer`), switches to it, draws, labels
@@ -53,6 +54,7 @@ on `ANNOTATION`, and restores the current layer ([0004](../decisions/0004-reads-
 | `ACAD_AUTOSTART` | `0` | `1` launches AutoCAD when none runs (it opens no drawing) |
 | `ACAD_OP_DELAY` | `0.05` | pause after each COM operation, in seconds |
 | `ACAD_TOOL_BUDGET` | `40` | seconds a listing may run ([0005](../decisions/0005-every-call-ends-inside-the-host-timeout.md)) |
+| `ACAD_EXPORT_*` | | the export's limits ([export](export.md#settings-environment)) |
 
 ## Gotchas
 
@@ -61,5 +63,6 @@ on `ANNOTATION`, and restores the current layer ([0004](../decisions/0004-reads-
 - Late binding turns a refused name lookup into `AttributeError('<object>.<name>')`; never catch
   `AttributeError` as "no such property" around a COM call without `is_busy`.
 - Points are `VARIANT(VT_ARRAY | VT_R8, [x, y, z])` (`create_variant_point`); plain tuples fail.
-- The server writes no file. Do not add logging to a file here without `TempFolder`
+- The server writes one kind of file, the exports, through `TempFolder().artefact_dir("exports")`
+  ([0006](../decisions/0006-background-export-jobs.md)). Do not add logging to a file here without `TempFolder`
   ([0003](../decisions/0003-no-writes-under-acc-or-beside-scripts.md)); stdout is the MCP channel, so never `print`.

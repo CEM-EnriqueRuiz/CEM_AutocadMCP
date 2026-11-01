@@ -1,9 +1,9 @@
 ---
 title: "Known gaps — what is missing, unverified or risky"
 type: concept
-updated: 2026-10-25
+updated: 2026-11-01
 sources: [autocad_mcp/server.py, README.md, live_test.py, "live runs 2026-10-24", ".venv/Lib/site-packages/win32com/client/dynamic.py", tests/test_busy_race.py, tests/test_no_drawing.py]
-related: [../modules/server.md, ../concepts/com-connection.md, ../workflows/live-test.md, ../decisions/0005-every-call-ends-inside-the-host-timeout.md]
+related: [../modules/server.md, export-schema.md, ../concepts/com-connection.md, ../workflows/live-test.md, ../decisions/0005-every-call-ends-inside-the-host-timeout.md]
 tags: [gaps, risks]
 ---
 
@@ -50,3 +50,29 @@ tags: [gaps, risks]
 13. **Closed 2026-10-24: connecting on the Start tab added a drawing.** `connect_to_autocad` no longer calls
     `Documents.Add()`; with no drawing open every tool answers "No drawing is open in AutoCAD…"
     ([0004](../decisions/0004-reads-never-modify-the-drawing.md), `tests/test_no_drawing.py`).
+14. **`export_drawing` run live once, on one drawing** (2026-11-01, plain AutoCAD 2025, 68,798 entities, 685–795
+    entities/s; [live test](../workflows/live-test.md)). Not yet on Civil 3D, AutoCAD 2027, or in a session shared
+    with another tool; the computed architectural texts were checked for shape, not against AutoCAD's rendering.
+    Some dimensions refuse `Measurement` ("object not open for write": 22 of 3,152) and a 2D polyline refused
+    `GetBulge`; both land in `errors`, and the dimension's displayed text is then the override or `null`.
+15. **What the export cannot get over ActiveX:** a viewport's view centre and frozen layers, every dimension-line
+    point, the extension-line points of rotated (linear) dimensions, and the defining points of radial, diametric
+    and ordinate dimensions (AutoCAD 2025's type info, live 2026-11-01), and the text a dimension
+    actually renders: it is computed from the dimension's format settings and flagged approximate for
+    architectural, fractional, engineering and Windows units, DMS, arc symbols and tolerances. Also not exported:
+    hatches, solids, meshes, images and Civil 3D objects (counted as skipped with the reason). An AutoLISP
+    `entget` reader would close the first three; phase 2, decided after the live measurement
+    ([schema](export-schema.md), [0006](../decisions/0006-background-export-jobs.md)).
+16. **Closed 2026-11-01: an export over 50 MB lived only until the next server start.** The folder-wide size cap
+    deleted a 53.7 MB export of a real drawing. `exports\` now has its own rule: the newest export and the newest
+    complete one are never pruned, the others stay up to 3 files and 7 days, outside the 50 MB cap; a fresh
+    process's prune of the real folder kept the 50.0 MB export ([temp-files](../modules/temp-files.md),
+    [0006](../decisions/0006-background-export-jobs.md)).
+17. **A junction swapped in at the last moment is narrowed, not closed** (2026-11-01, SEC-1). Between the prune's
+    last check and its delete, or between `_prepare`'s second check and the caller's write, a junction swapped in is
+    a race the re-checks narrow but cannot close (Windows offers no delete- or create-relative-to-a-handle in
+    Python's standard library). The steady case is closed: the prune follows no reparse point, and `log_path` /
+    `artefact_dir` refuse a junctioned `Cemengal`, root or artefact folder, so `export_drawing` answers "Cannot write
+    the export: Refusing to write through a junction or link…" instead of writing
+    ([0003](../decisions/0003-no-writes-under-acc-or-beside-scripts.md) point 6); `setup_claude.ps1` refuses the same
+    before writing its transcript.

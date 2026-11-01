@@ -44,7 +44,16 @@ as pywin32's `AttributeError` instead. `is_busy` recognises both; `call_when_rea
 
 Measured on 2026-10-24 (Civil 3D 2027, a 6,947-layer, 958-entity drawing, with another agent's plugin in the
 same session): ~10–65 ms per property read, 1.7–3 s per `Regen`. Treat every COM call as expensive: loop over
-handles, not over model space, and bound any listing ([0005](../decisions/0005-every-call-ends-inside-the-host-timeout.md)).
+handles, not over model space, and bound any listing. The export's DISPID cache (one name lookup per type,
+then `Invoke` on the raw `IDispatch`) measured ~0.13–0.15 ms per call on plain AutoCAD 2025 alone, 2026-11-01
+([0006](../decisions/0006-background-export-jobs.md)); not compared with late binding on the same drawing ([0005](../decisions/0005-every-call-ends-inside-the-host-timeout.md)).
+
+## Another thread
+
+COM objects belong to the apartment that made them. The export job runs on its own thread with its own
+`CoInitialize`, and receives the `Application` marshalled from the server's connection
+(`CoMarshalInterThreadInterfaceInStream`); for an out-of-process server the new proxy calls `acad.exe` directly.
+Never pass a proxy between threads unmarshalled ([0006](../decisions/0006-background-export-jobs.md)).
 
 ## A shared session
 

@@ -9,27 +9,95 @@ if ($repo.Split('\') -contains 'ACCDocs') { throw "Refusing to set up in an ACC 
 # Cemengal: the transcript goes to the self-cleaning local temp folder, never beside this script. The .venv
 # (and the Python helper autocad_mcp.temp_files) may not exist yet, so the same prune lives here too.
 # >>> prune
-function Invoke-CemTempPrune([string]$Dir, [int]$Days = 7, [long]$MaxBytes = 50MB) {
+function Test-CemReparse([string]$Path) {
+  # Cemengal: a junction, a symlink or any other reparse point; one that cannot be read counts as one (SEC-1, CWE-59)
+  try { $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop }
+  catch [System.Management.Automation.ItemNotFoundException] { return $false }
+  catch { return $true }
+  return [bool]($item.Attributes -band [IO.FileAttributes]::ReparsePoint)
+}
+function Get-CemFilesUnder([string]$Dir, [string]$Skip = '', [switch]$Flat) {
+  # every file under $Dir; a reparse point is neither listed nor entered
+  $pending = New-Object System.Collections.Stack
+  $pending.Push($Dir)
+  while ($pending.Count) {
+    foreach ($i in @(Get-ChildItem -LiteralPath $pending.Pop() -Force -ErrorAction SilentlyContinue)) {
+      if ($i.Attributes -band [IO.FileAttributes]::ReparsePoint) { continue }
+      if ($i.PSIsContainer) {
+        if (-not $Flat -and -not ($Skip -and $i.FullName -ieq $Skip)) { $pending.Push($i.FullName) }
+      } else { $i }
+    }
+  }
+}
+function Test-CemSafe([string]$Dir, [string]$Path) {
+  # no reparse point from $Dir's parent down to $Path, checked again just before a delete
+  $root = $Dir.TrimEnd('\')
+  if ((Test-CemReparse (Split-Path -Parent $root)) -or (Test-CemReparse $root)) { return $false }
+  if (-not $Path.StartsWith($root + '\', [StringComparison]::OrdinalIgnoreCase)) { return $false }
+  $current = $root
+  foreach ($part in $Path.Substring($root.Length + 1).Split('\')) {
+    $current = Join-Path $current $part
+    if (Test-CemReparse $current) { return $false }
+  }
+  return $true
+}
+function Remove-CemFile([string]$Dir, $File) {
+  if (-not (Test-CemSafe $Dir $File.FullName)) { return $false }
+  try { Remove-Item -LiteralPath $File.FullName -Force -ErrorAction Stop; return $true } catch { return $false }
+}
+function Invoke-CemTempPrune([string]$Dir, [int]$Days = 7, [long]$MaxBytes = 50MB, [int]$MaxExports = 3) {
   try {
+    # Cemengal: never through a junction or link, at the root, its parent, exports\, a subfolder or a file (SEC-1)
+    $root = $Dir.TrimEnd('\')
+    if ((Test-CemReparse (Split-Path -Parent $root)) -or (Test-CemReparse $root) -or -not (Test-Path -LiteralPath $root -PathType Container)) { return }
     $limit = (Get-Date).AddDays(-$Days)
-    $kept = @()
-    foreach ($f in @(Get-ChildItem -LiteralPath $Dir -File -Recurse -ErrorAction SilentlyContinue | Sort-Object LastWriteTime)) {
-      if ($f.LastWriteTime -lt $limit) {
-        try { Remove-Item -LiteralPath $f.FullName -Force -ErrorAction Stop; continue } catch {}
+    $exports = Join-Path $root 'exports'
+    # Cemengal: exports\ has its own rule, outside the 50 MB cap (docs/decisions/0006, known gap 16): the newest
+    # export and the newest complete .json at any age, then others up to $MaxExports while under $Days old.
+    if (-not (Test-CemReparse $exports)) {
+      $listed = @(Get-CemFilesUnder $exports -Flat)
+      $made = @($listed | Where-Object { $_.Name -like '*.json' } | Sort-Object LastWriteTime -Descending)
+      $keep = New-Object System.Collections.Generic.List[string]
+      if ($made.Count) { $keep.Add($made[0].FullName) }
+      $complete = @($made | Where-Object { $_.Name -notlike '*.failed.json' } | Select-Object -First 1)
+      if ($complete.Count -and -not $keep.Contains($complete[0].FullName)) { $keep.Add($complete[0].FullName) }
+      foreach ($f in $made) {
+        if ($keep.Count -ge $MaxExports) { break }
+        if ($f.LastWriteTime -ge $limit -and -not $keep.Contains($f.FullName)) { $keep.Add($f.FullName) }
       }
+      foreach ($f in $made) { if (-not $keep.Contains($f.FullName)) { [void](Remove-CemFile $root $f) } }
+      foreach ($f in @($listed | Where-Object { $_.Name -notlike '*.json' })) {
+        if ($f.LastWriteTime -lt $limit) { [void](Remove-CemFile $root $f) }
+      }
+    }
+    $kept = @()
+    foreach ($f in @(Get-CemFilesUnder $root -Skip $exports | Sort-Object LastWriteTime)) {
+      if ($f.LastWriteTime -lt $limit -and (Remove-CemFile $root $f)) { continue }
       $kept += $f
     }
     $total = [long](($kept | Measure-Object Length -Sum).Sum)
     foreach ($f in $kept) {
       if ($total -lt $MaxBytes) { break }
-      try { Remove-Item -LiteralPath $f.FullName -Force -ErrorAction Stop; $total -= $f.Length } catch {}
+      if (Remove-CemFile $root $f) { $total -= $f.Length }
     }
   } catch {}
 }
+function Assert-CemWritableTemp([string]$Dir, [string]$Folder = '') {
+  # Cemengal: never write through a junction or link at Cemengal, the root or the artefact folder, as
+  # TempFolder._prepare does (docs/decisions/0003 point 6, known gap 17)
+  $root = $Dir.TrimEnd('\')
+  foreach ($p in @((Split-Path -Parent $root), $root, $Folder)) {
+    if ($p -and (Test-CemReparse $p)) {
+      throw "Refusing to write through a junction or link: $p (it may point outside the temp folder; remove it, then retry)"
+    }
+  }
+}
 # <<< prune
 $logDir = Join-Path ([IO.Path]::GetTempPath()) "Cemengal\AutocadMCP"
+Assert-CemWritableTemp -Dir $logDir
 Invoke-CemTempPrune -Dir $logDir
 New-Item -ItemType Directory -Force $logDir | Out-Null
+Assert-CemWritableTemp -Dir $logDir  # again: one may have been swapped in meanwhile (known gap 17)
 $log = Join-Path $logDir ("setup-" + (Get-Date -Format yyyyMMdd) + ".log")
 Start-Transcript -Path $log -Append | Out-Null
 Write-Host "== AutoCAD MCP setup in $repo (log: $log)" -ForegroundColor Cyan

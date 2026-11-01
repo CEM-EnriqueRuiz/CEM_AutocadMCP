@@ -63,6 +63,9 @@ def test_every_listed_tool_reaches_a_method(offline):
         if tool.name == "delete_all_entities":
             assert result == {"error": "Refusing to delete everything: pass confirm=true"} or "Not connected" in result["error"]
             continue
+        if tool.name in ("get_export_status", "cancel_export"):  # the job lives in the server, not in AutoCAD
+            assert result == {"error": "Unknown export job: x"}, (tool.name, result)
+            continue
         assert "Not connected to AutoCAD" in result.get("error", ""), (tool.name, result)
 
 

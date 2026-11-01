@@ -88,3 +88,27 @@ def test_setup_still_finds_the_older_installs(tmp_path):
 def test_setup_creates_the_classic_config_when_there_is_none(tmp_path):
     local, roaming = tmp_path / "Local", tmp_path / "Roaming"
     assert claude_configs(local, roaming) == [roaming / "Claude" / "claude_desktop_config.json"]
+
+
+@pytest.mark.skipif(POWERSHELL is None, reason="needs Windows PowerShell")
+def test_setup_prune_follows_the_exports_rule(tmp_path):
+    """The twin keeps exports\ as TempFolder does (known gap 16): the last 3, 7 days, never the newest."""
+    from test_temp_files import exports_scenario
+    kept, deleted = exports_scenario(tmp_path)
+    run_prune(tmp_path, max_bytes=250)
+    assert [p.name for p in kept if not p.exists()] == []
+    assert [p.name for p in deleted if p.exists()] == []
+    e = tmp_path / "exports"
+    for p in list(e.iterdir()):
+        p.unlink()
+    newest, complete, older = write(e / "r.failed.json", 10, 9), write(e / "g.json", 10, 10), write(e / "o.json", 10, 12)
+    run_prune(tmp_path, max_bytes=250)
+    assert newest.exists() and complete.exists() and not older.exists()
+
+
+@pytest.mark.skipif(POWERSHELL is None, reason="needs Windows PowerShell")
+def test_setup_prune_agrees_with_tempfolder_on_an_old_second_complete_export(tmp_path):
+    from test_temp_files import qa1_scenario
+    keep, drop = qa1_scenario(tmp_path / "exports")
+    run_prune(tmp_path, max_bytes=250)
+    assert all(p.exists() for p in keep) and not any(p.exists() for p in drop)

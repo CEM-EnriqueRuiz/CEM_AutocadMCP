@@ -109,3 +109,71 @@ def test_refuses_a_folder_under_acc(tmp_path):
 
 def test_the_helper_knows_its_app_name():
     assert temp_files.APP == "AutocadMCP"
+
+
+# --- exports\ (known gap 16, docs/decisions/0006): its own rule, outside the 50 MB cap ------------------------
+
+def exports_scenario(root):
+    """A folder as a day of exports leaves it; ages in days. Returns (kept, deleted) by the exports rule."""
+    e = root / "exports"
+    kept = [write(e / "newest.json", 1000, 0.1),  # alone over the folder's size cap: it must survive
+            write(e / "second.failed.json", 10, 0.2),
+            write(e / "third.json", 10, 0.3),
+            write(e / "running.json.partial", 10, 0.05),  # a job of another server process
+            write(root / "b.log", 100, 2), write(root / "c.log", 100, 1)]
+    deleted = [write(e / "fourth.json", 10, 0.4),  # beyond the last 3
+               write(e / "old.json", 10, 10),  # beyond 7 days
+               write(e / "stale.json.partial", 10, 9),  # a crashed job
+               write(root / "a.log", 100, 3)]  # the rest of the folder still has its 50 MB cap (here 250 bytes)
+    return kept, deleted
+
+
+def test_exports_keep_the_last_three_outside_the_size_cap(tmp_path):
+    folder = TempFolder("AutocadMCP", base=tmp_path, max_bytes=250)
+    kept, deleted = exports_scenario(folder.root)
+    folder.prune()
+    assert [p.name for p in kept if not p.exists()] == []
+    assert [p.name for p in deleted if p.exists()] == []
+
+
+def test_the_newest_export_and_the_newest_complete_one_survive_any_age(tmp_path):
+    folder = TempFolder("AutocadMCP", base=tmp_path)
+    e = folder.root / "exports"
+    newest = write(e / "retry.failed.json", 10, 9)
+    complete = write(e / "good.json", 10, 10)
+    older = write(e / "older.json", 10, 12)
+    folder.prune()
+    assert newest.exists() and complete.exists() and not older.exists()
+
+
+def test_never_more_than_three_exports_even_when_the_newest_ones_failed(tmp_path):
+    folder = TempFolder("AutocadMCP", base=tmp_path)
+    e = folder.root / "exports"
+    f1, f2, f3 = (write(e / f"f{i}.failed.json", 10, i / 10) for i in (1, 2, 3))
+    good = write(e / "good.json", 10, 0.4)
+    folder.prune()
+    assert sorted(p.name for p in e.iterdir()) == ["f1.failed.json", "f2.failed.json", "good.json"]
+    assert not f3.exists()
+
+
+def test_prune_exports_alone_leaves_the_rest_of_the_folder(tmp_path):
+    folder = TempFolder("AutocadMCP", base=tmp_path, max_bytes=1)
+    log = write(folder.root / "old.log", 10, 9)
+    surplus = [write(folder.root / "exports" / f"x{i}.json", 10, i / 10) for i in range(5)]
+    folder.prune_exports()
+    assert log.exists()
+    assert [p.exists() for p in surplus] == [True, True, True, False, False]
+
+
+def qa1_scenario(e):
+    """QA-1: the newest export is complete, a second complete one is 10 days old: it goes (at most 3, within 7 days)."""
+    keep = [write(e / "newest.json", 10, 0.1), write(e / "retry.failed.json", 10, 0.2)]
+    drop = [write(e / "old-good.json", 10, 10)]
+    return keep, drop
+
+
+def test_an_old_second_complete_export_is_not_kept_when_the_newest_is_complete(tmp_path):
+    folder = TempFolder("AutocadMCP", base=tmp_path)
+    keep, drop = qa1_scenario(folder.root / "exports")
+    folder.prune()
+    assert all(p.exists() for p in keep) and not any(p.exists() for p in drop)

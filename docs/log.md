@@ -60,3 +60,80 @@ decisions of 2026-10-25, the files in the commit and those left out, the tests (
 0031 now holds the MCPs to the rule with no exception, noted in [0003](decisions/0003-no-writes-under-acc-or-beside-scripts.md).
 [Known gaps](concepts/known-gaps.md) 8: the tracked upstream bytecode stays for a change of its own.
 [Test](workflows/test.md) names the root runner's `autocadmcp` target. Index: the issue page.
+
+## [2026-11-01] ingest | export_drawing: a complete read-only export of a drawing, run in the background
+
+From the architect's brief (the user wants the MCP to read what Codex read through PowerShell COM). After the
+coordinator approved the plan, three tools were built test-first on the fake COM objects: `export_drawing`,
+`get_export_status`, `cancel_export`. The job runs on its own thread and COM apartment with a marshalled proxy, reads
+through a DISPID cache, walks model space, every layout with its viewports and the referenced block definitions,
+and writes one JSON (schema v1) under `%TEMP%\Cemengal\AutocadMCP\exports\`, never overwriting. Limits fail the job
+with the reason and keep a `.failed.json`. Dimensions carry measurement, override and a computed displayed text;
+what ActiveX lacks is listed as `unavailable`. 140 tests (57 before). Not run live: AutoCAD was not running.
+New: [0006](decisions/0006-background-export-jobs.md), [export](modules/export.md),
+[export schema](concepts/export-schema.md), [sources/commits/2026-11](sources/commits/2026-11.md). Updated:
+[server](modules/server.md), [overview](overview.md), [known gaps](concepts/known-gaps.md) 14 and 15,
+[test](workflows/test.md), [temp-files](modules/temp-files.md), [live test](workflows/live-test.md),
+[COM connection](concepts/com-connection.md), [0005](decisions/0005-every-call-ends-inside-the-host-timeout.md), the index.
+
+## [2026-11-01] ingest | export_drawing live on AutoCAD 2025: 685–795 entities/s, two fixes
+
+On the coordinator's go, a scratch MCP client ran the export twice against a real drawing the user had open
+(68,798 entities; names and contents kept out of the wiki). Read only, `done` in 100 s, cancel in 0.5 s, other tools
+answering in 0.03 s meanwhile. Fixed test-first: rotated dimensions lack extension-line points in AutoCAD 2025, and
+architectural text follows the zero-feet / zero-inches suppression; compact JSON. Run 2: 795 entities/s. 147 tests.
+Updated [live test](workflows/live-test.md), [0006](decisions/0006-background-export-jobs.md),
+[export schema](concepts/export-schema.md), [known gaps](concepts/known-gaps.md) 14–16,
+[COM connection](concepts/com-connection.md), [test](workflows/test.md),
+[sources/commits/2026-11](sources/commits/2026-11.md).
+
+## [2026-11-01] ingest | Known gap 16 closed: exports\ keeps the last 3, never the newest, outside the 50 MB cap
+
+The architect asked that an export survive the prune at the next server start. Test-first in `TempFolder`
+(`prune_exports`, also run after each job) and in `setup_claude.ps1`'s twin: the newest export and the newest
+complete one at any age, the others up to 3 files and 7 days; the rest of the folder keeps 7 days / 50 MB. The
+tool description states it. 154 tests. Updated [temp-files](modules/temp-files.md),
+[0003](decisions/0003-no-writes-under-acc-or-beside-scripts.md) (amended), [0006](decisions/0006-background-export-jobs.md),
+[known gaps](concepts/known-gaps.md) 16, [export](modules/export.md), [test](workflows/test.md),
+[sources/commits/2026-11](sources/commits/2026-11.md).
+
+## [2026-11-01] ingest | Review fix batch: the prune follows no reparse point (SEC-1), QA-1, QA-4, QA-6
+
+Test-first. Both prunes (`TempFolder`, `setup_claude.ps1`) never enter or delete through a junction or symlink,
+at the root, its parent, `exports\`, a subfolder or a file, and re-check before each delete; the Python exports rule
+agrees with the PowerShell one on an old second complete export; the COM stream is marshalled only when a job is
+accepted and released otherwise; hostile drawing names are pinned. 183 passed, 1 skipped. Updated
+[0003](decisions/0003-no-writes-under-acc-or-beside-scripts.md) (point 6), [0006](decisions/0006-background-export-jobs.md),
+[temp-files](modules/temp-files.md) (the check), [export](modules/export.md), [test](workflows/test.md),
+[known gaps](concepts/known-gaps.md) 17, the index's rule 4, the dev skill, [sources/commits/2026-11](sources/commits/2026-11.md).
+
+## [2026-11-01] ingest | Known gap 17 narrowed: no write goes through a junctioned temp folder
+
+Test-first: `TempFolder._prepare` refuses a junctioned `Cemengal`, root or artefact folder, before the prune and
+after `mkdir`; `export_drawing` answers the reason instead of writing. 187 passed, 1 skipped. Updated
+[0003](decisions/0003-no-writes-under-acc-or-beside-scripts.md) point 6, [temp-files](modules/temp-files.md),
+[known gaps](concepts/known-gaps.md) 17 (the race only), [test](workflows/test.md),
+[sources/commits/2026-11](sources/commits/2026-11.md).
+
+## [2026-11-01] ingest | setup_claude.ps1 refuses to write its transcript through a junction
+
+Test-first: `Assert-CemWritableTemp`, the PowerShell twin of `_prepare`'s refusal, runs before the prune and after
+the folder is made, before `Start-Transcript`. 193 passed, 1 skipped. Updated
+[0003](decisions/0003-no-writes-under-acc-or-beside-scripts.md) point 6, [temp-files](modules/temp-files.md),
+[known gaps](concepts/known-gaps.md) 17, [test](workflows/test.md), [sources/commits/2026-11](sources/commits/2026-11.md).
+
+## [2026-11-01] ingest | QA-8: a long drawing name gets a bounded, hashed stem
+
+Test-first: `safe_stem` keeps a 71-character prefix plus `~` and 8 hex of a SHA-1 when the stem exceeds 80
+characters, so a 300-character name exports under Windows' 260-character path and two long names never collide;
+the never-overwrite rule is unchanged. 196 passed, 1 skipped. Updated [0006](decisions/0006-background-export-jobs.md),
+[export](modules/export.md), [test](workflows/test.md), [sources/commits/2026-11](sources/commits/2026-11.md).
+
+## [2026-11-01] ingest | CEMENGAL/CEM_Workspace#5: export_drawing, the exports prune rule, the reparse-point guards
+
+The user chose one umbrella issue for the 2026-11-01 MCP modeller work. The record moved from
+`sources/commits/2026-11` to [sources/issues/CEMENGAL-CEM_Workspace-5](sources/issues/CEMENGAL-CEM_Workspace-5.md),
+with an end-state table of every finding (SEC-1 High, QA-1, QA-4, QA-6/SEC-6, QA-8, SEC-11, known gaps 16 and 17):
+0 open blocking findings, 196 passed and 1 skipped. Index: the issue page;
+[0003](decisions/0003-no-writes-under-acc-or-beside-scripts.md) and [0006](decisions/0006-background-export-jobs.md)
+cite the issue. Committed as one commit, not pushed.

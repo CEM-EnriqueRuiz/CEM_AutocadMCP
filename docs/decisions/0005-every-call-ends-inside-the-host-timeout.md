@@ -55,3 +55,5 @@ without makepy, so it always threw and never ran. The user's 2026-10-17 fix made
   model space and can exceed 60 s on a large drawing ([known gaps](../concepts/known-gaps.md)).
 - `tests/test_time_budget.py` pins the layer cap, both budgets, no `Regen` on create, and the scan-free,
   model-space-only delete by handle.
+- A whole-drawing read does not fit any budget: it runs as a background job whose tools answer at once
+  ([0006](0006-background-export-jobs.md), 2026-11-01).

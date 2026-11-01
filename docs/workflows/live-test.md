@@ -34,7 +34,33 @@ It exits 1 on any failed check and logs to `%TEMP%\Cemengal\AutocadMCP\live-test
 layer tools (they add layers, which no tool removes); `zoom_extents` (it moves the user's view). Creating and
 deleting entities leaves the drawing's `Saved` flag false: close without saving.
 
+**`export_drawing`** is not in `live_test.py`; it was run live with a scratch client (below). Its live test: the user
+opens a drawing with real dimensions in AutoCAD and gives its exact path (no supplier drawing otherwise, never a
+walk of `C:\DC`); start the export, follow `get_export_status` to `done`, record entities per second, the
+`unavailable` and `errors` a real drawing shows and the `Saved` flag before and after; cancel a second run. Read
+only: the drawing stays as it was. Record counts and timings only, never the drawing's names or contents.
+
 ## Recorded runs
+
+**2026-11-01, plain AutoCAD 2025** (`Version` 25.1, ProgID `AutoCAD.Application`), alone on the machine, a real
+supplier drawing the user opened and the coordinator named by exact path (its name and contents stay out of this
+wiki; the JSON stayed in `%TEMP%`). 56 layers; 47,586 entities in model space, 14 paper-space layouts with 53
+viewports, 226 block definitions: 68,798 entities in all. The drawing's `Saved` flag was already false (the user's
+session). A scratch MCP client started this repo's `.venv` server over stdio from `%TEMP%`, as Claude Desktop does.
+- Run 1, 11:59: `export_drawing` answered in 5 ms; the job ended `done` in 100 s, **685 entities/s**, 658,035 COM
+  calls (~0.15 ms each), 0 busy waits; `get_drawing_info` called meanwhile answered in 0.03 s each time. 67,430
+  read, 1,368 skipped with their reason (hatches 966, 2D solids 376, OLE 15, RText 5, wipeouts 4, PDF underlays
+  2), 0 failed; 3,152 dimensions, 2,945 in architectural units. A second export, cancelled after 8 s, stopped in
+  0.5 s as `cancelled` with its `.failed.json` and no plain `.json`. Layers and entities unchanged after.
+- What it showed, fixed the same hour test-first: AutoCAD 2025's `IAcadDimRotated` has no `ExtLine1Point` /
+  `ExtLine2Point` (type info; all 2,987 rotated dimensions), and architectural text must follow `SuppressZeroFeet`
+  / `SuppressZeroInches` (1,541 dimensions under a foot, 407 whole feet). Also: 22 dimensions refuse
+  `Measurement` with "object not open for write" and one 2D polyline refuses `GetBulge` ("invalid input"); both
+  are recorded in the entities' `errors`, nothing retried.
+- Run 2, 12:03, after the fixes: `done` in 87.5 s, **795 entities/s**, same counts; the computed architectural texts
+  take AutoCAD's shapes (`6'-6 1/2"`, `6 1/2"`, `6'-0"`); cancel again in 0.5 s. The file is 50.0 MB with compact
+  JSON (run 1, indented separators: 53.7 MB). **Run 1's file was gone**: the temp folder's prune at run 2's server
+  start deleted it, being over 50 MB ([known gaps](../concepts/known-gaps.md) 16).
 
 **2026-10-24, Civil 3D 2027** (`acad.exe` pid 3016, ProgID 26), `CEM_Test\MCP\X-C3D-CSLZ-25012720_SERVICE
 PROP_CORR.dwg`: 6,947 layers, 958 entities, with the CEM_Civil3DMCP agent working in the same session.
