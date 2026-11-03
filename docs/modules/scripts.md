@@ -1,7 +1,7 @@
 ---
 title: "scripts — setup_claude, diag_com, live_test, test_script"
 type: module
-updated: 2026-10-24
+updated: 2026-11-04
 sources: [setup_claude.ps1, setup_claude.bat, diag_com.py, diag_com.bat, live_test.py, live_test.bat, test_script.py]
 related: [../workflows/connect-an-agent.md, ../workflows/live-test.md, ../decisions/0003-no-writes-under-acc-or-beside-scripts.md, temp-files.md]
 tags: [module, scripts, setup]
@@ -21,6 +21,8 @@ and ends with `pause`.
 
 Each log run appends a `=== yyyy-mm-dd hh:mm:ss` block, and the script prints the log's path.
 
+- `setup_claude` registers the server with Claude Desktop only. Claude Code reaches it through the tracked
+  `.mcp.json`, which needs only the `.venv` ([connect an agent](../workflows/connect-an-agent.md)).
 - Never run `test_script.py` on a real drawing: it adds entities and does not delete them. It is not the MCP
   server and not a test in `tests/`.
 - After the folder was renamed from `autocad-mcp-server` (2026-10-24), the `.venv`'s editable install still

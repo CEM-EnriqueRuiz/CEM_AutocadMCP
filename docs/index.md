@@ -1,7 +1,7 @@
 ---
 title: "CEM_AutocadMCP wiki — index"
 type: index
-updated: 2026-11-01
+updated: 2026-11-04
 sources: [README.md, autocad_mcp/server.py, CLAUDE.md]
 related: [overview.md, log.md]
 tags: [index]
@@ -13,8 +13,8 @@ tags: [index]
 
 **1. Read [overview.md](overview.md).** CEM_AutocadMCP is a **fork of `thepiruthvirajan/autocad-mcp-server`**: a
 Python MCP server over stdio (`autocad_mcp/server.py`) that drives a running AutoCAD or Civil 3D through COM
-(`pywin32`). Claude Desktop starts it as `.venv\Scripts\python.exe -m autocad_mcp.server`; nothing runs inside
-AutoCAD. Upstream vs our parts: [upstream and fork](concepts/upstream-and-fork.md).
+(`pywin32`). Claude Code (through `.mcp.json`) and Claude Desktop start it as
+`.venv\Scripts\python.exe -m autocad_mcp.server`; nothing runs inside AutoCAD. Upstream vs our parts: [upstream and fork](concepts/upstream-and-fork.md).
 
 **2. Hard rules.** Each links to its reason.
 
@@ -45,7 +45,7 @@ AutoCAD. Upstream vs our parts: [upstream and fork](concepts/upstream-and-fork.m
 | Anything that writes a file (logs, screenshots, exports) | [0003](decisions/0003-no-writes-under-acc-or-beside-scripts.md), [temp-files](modules/temp-files.md), root [0031](../../../docs/decisions/0031-nothing-writes-under-acc-logs-in-local-temp.md) |
 | `export_drawing`, its schema, the background jobs, dimension text | [export](modules/export.md), [export schema](concepts/export-schema.md), [0006](decisions/0006-background-export-jobs.md) |
 | Layers, `create_structure`, anything that changes the drawing | [0004](decisions/0004-reads-never-modify-the-drawing.md), [server](modules/server.md) |
-| Setup, the `.venv`, Claude Desktop's config | [connect an agent](workflows/connect-an-agent.md), [scripts](modules/scripts.md) |
+| Setup, the `.venv`, `.mcp.json`, Claude Desktop's config | [connect an agent](workflows/connect-an-agent.md), [scripts](modules/scripts.md) |
 | Testing against a live AutoCAD | [live test](workflows/live-test.md) |
 | Pulling from upstream | [upstream and fork](concepts/upstream-and-fork.md), [0001](decisions/0001-minimal-marked-divergence-from-upstream.md) |
 | Anything | [known gaps](concepts/known-gaps.md): bulk deletes scan model space, undo is not ours, several tools not run live |
@@ -82,7 +82,7 @@ AutoCAD. Upstream vs our parts: [upstream and fork](concepts/upstream-and-fork.m
 
 - [test](workflows/test.md): the pytest suite, the fake AutoCAD, what it cannot cover.
 - [live-test](workflows/live-test.md): `live_test.py` through MCP stdio, with the recorded runs.
-- [connect-an-agent](workflows/connect-an-agent.md): register the server with Claude Desktop; where its config lives.
+- [connect-an-agent](workflows/connect-an-agent.md): Claude Code through `.mcp.json`; Claude Desktop through the setup, and where its config lives.
 - [finish-a-change](workflows/finish-a-change.md): commit with the wiki ingest.
 
 ### Decisions
@@ -98,7 +98,7 @@ AutoCAD. Upstream vs our parts: [upstream and fork](concepts/upstream-and-fork.m
 
 - [commits 2025-07](sources/commits/2025-07.md): upstream's six commits.
 - [commits 2026-10](sources/commits/2026-10.md): none without an issue; the record moved to #82.
-- [commits 2026-11](sources/commits/2026-11.md): none without an issue; the record moved to CEM_Workspace#5.
+- [commits 2026-11](sources/commits/2026-11.md): `autocad-mcp` declared in `.mcp.json`; the earlier record moved to CEM_Workspace#5.
 
 ### Issues
 

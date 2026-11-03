@@ -137,3 +137,12 @@ with an end-state table of every finding (SEC-1 High, QA-1, QA-4, QA-6/SEC-6, QA
 0 open blocking findings, 196 passed and 1 skipped. Index: the issue page;
 [0003](decisions/0003-no-writes-under-acc-or-beside-scripts.md) and [0006](decisions/0006-background-export-jobs.md)
 cite the issue. Committed as one commit, not pushed.
+
+## [2026-11-04] ingest | autocad-mcp declared in .mcp.json
+
+The user asked for each repo's `.mcp.json` to declare the servers its development needs, committed with no issue
+link and with reviews skipped. `.mcp.json` gained a relative `autocad-mcp` entry, and the tracked
+`.claude/settings.local.json` enables it. Recorded in [sources/commits/2026-11](sources/commits/2026-11.md), with the
+rejected alternatives. Corrected what said only Claude Desktop starts the server:
+[connect an agent](workflows/connect-an-agent.md), [scripts](modules/scripts.md), [server](modules/server.md),
+[overview](overview.md), [index](index.md), `CLAUDE.md` and the skill. Not pushed.

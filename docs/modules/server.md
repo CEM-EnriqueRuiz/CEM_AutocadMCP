@@ -1,7 +1,7 @@
 ---
 title: "server — autocad_mcp/server.py, the MCP server"
 type: module
-updated: 2026-11-01
+updated: 2026-11-04
 sources: [autocad_mcp/server.py, pyproject.toml, tests/test_tool_contract.py]
 related: [export.md, ../concepts/com-connection.md, ../decisions/0002-lazy-connection-and-progid-discovery.md, ../decisions/0004-reads-never-modify-the-drawing.md, ../decisions/0005-every-call-ends-inside-the-host-timeout.md, temp-files.md]
 tags: [module, mcp, com]
@@ -11,7 +11,7 @@ tags: [module, mcp, com]
 
 One class, `AutoCADCOMServer`, wraps both the MCP low-level `Server` (`self.server`, name `autocad-com-mcp`) and
 the COM connection (`self.acad_app`, `self.doc`). `main()` registers the tools and serves stdio; `run()` is the
-console entry point (`autocad-com-mcp` in `pyproject.toml`). Claude Desktop runs `python -m autocad_mcp.server`.
+console entry point (`autocad-com-mcp` in `pyproject.toml`). Claude Code and Claude Desktop run `python -m autocad_mcp.server`.
 
 ## Shape of a tool
 

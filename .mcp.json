@@ -1,5 +1,6 @@
 {
   "mcpServers": {
-    "qmd": { "type": "http", "url": "http://127.0.0.1:8181/mcp" }
+    "qmd": { "type": "http", "url": "http://127.0.0.1:8181/mcp" },
+    "autocad-mcp": { "type": "stdio", "command": ".venv/Scripts/python.exe", "args": ["-m", "autocad_mcp.server"] }
   }
 }

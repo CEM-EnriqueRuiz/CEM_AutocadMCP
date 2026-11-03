@@ -7,8 +7,9 @@ description: Develop CEM_AutocadMCP, the AutoCAD MCP fork — the Python stdio M
 
 A fork of `thepiruthvirajan/autocad-mcp-server`. `autocad_mcp/server.py` is a Python MCP server over stdio
 (`AutoCADCOMServer`, `mcp` low-level `Server`) that drives a running AutoCAD, or Civil 3D, through COM with
-`pywin32`. Claude Desktop starts it as `.venv\Scripts\python.exe -m autocad_mcp.server`; nothing runs inside
-AutoCAD. `setup_claude.ps1` builds the `.venv` and registers the server; `diag_com.py` and `live_test.py` are
+`pywin32`. Claude Code (through `.mcp.json`) and Claude Desktop start it as
+`.venv\Scripts\python.exe -m autocad_mcp.server`; nothing runs inside AutoCAD. `setup_claude.ps1` builds the
+`.venv` and registers the server with Claude Desktop; `diag_com.py` and `live_test.py` are
 the user's diagnostic and live-test scripts.
 
 **Before planning or editing, read [docs/index.md](../../../docs/index.md) ("Start here"), then the pages it names.**

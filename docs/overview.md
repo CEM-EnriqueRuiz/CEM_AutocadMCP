@@ -1,7 +1,7 @@
 ---
 title: "CEM_AutocadMCP — overview"
 type: overview
-updated: 2026-11-01
+updated: 2026-11-04
 sources: [README.md, autocad_mcp/server.py, pyproject.toml, setup_claude.ps1]
 related: [index.md, concepts/upstream-and-fork.md, modules/server.md, concepts/com-connection.md]
 tags: [overview]
@@ -14,9 +14,9 @@ same Windows machine. It is a fork of `thepiruthvirajan/autocad-mcp-server`
 ([upstream and fork](concepts/upstream-and-fork.md)).
 
 ```
-Claude Desktop ──stdio (MCP)──> .venv\Scripts\python.exe -m autocad_mcp.server
-                                   AutoCADCOMServer
-                                     └─ COM (pywin32) ──> acad.exe (AutoCAD / Civil 3D), ActiveDocument
+Claude Code, Claude Desktop ──stdio (MCP)──> .venv\Scripts\python.exe -m autocad_mcp.server
+                                                AutoCADCOMServer
+                                                  └─ COM (pywin32) ──> acad.exe (AutoCAD / Civil 3D), ActiveDocument
 ```
 
 - **No plugin inside AutoCAD.** Unlike CEM_RevitMCP, CEM_NavisworksMCP or CEM_Civil3DMCP (which load an add-in
@@ -32,8 +32,9 @@ Claude Desktop ──stdio (MCP)──> .venv\Scripts\python.exe -m autocad_mcp.
   call ends inside the host's 60 s ([0005](decisions/0005-every-call-ends-inside-the-host-timeout.md)).
 - **Files:** the server writes only its exports, to `%TEMP%\Cemengal\AutocadMCP\exports\`; the user's scripts log to `%TEMP%\Cemengal\AutocadMCP\` through
   `autocad_mcp/temp_files.py` ([0003](decisions/0003-no-writes-under-acc-or-beside-scripts.md)).
-- **Install:** `setup_claude.bat` builds `.venv` and registers the server with Claude Desktop
-  ([connect an agent](workflows/connect-an-agent.md), [scripts](modules/scripts.md)).
+- **Install:** `setup_claude.bat` builds `.venv` and registers the server with Claude Desktop; Claude Code inside
+  this repo gets it from the tracked `.mcp.json` ([connect an agent](workflows/connect-an-agent.md),
+  [scripts](modules/scripts.md)).
 
 ## In the product family
 

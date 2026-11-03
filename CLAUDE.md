@@ -1,8 +1,8 @@
 # CEM_AutocadMCP
 
 A fork of `thepiruthvirajan/autocad-mcp-server`: a Python MCP server over stdio (`autocad_mcp/server.py`,
-`AutoCADCOMServer`) that drives a running AutoCAD, or Civil 3D, through COM (`pywin32`). Claude Desktop starts it as
-`.venv\Scripts\python.exe -m autocad_mcp.server`; there is no plugin inside AutoCAD.
+`AutoCADCOMServer`) that drives a running AutoCAD, or Civil 3D, through COM (`pywin32`). Claude Code (through `.mcp.json`)
+and Claude Desktop start it as `.venv\Scripts\python.exe -m autocad_mcp.server`; there is no plugin inside AutoCAD.
 
 **Read [docs/index.md](docs/index.md) ("Start here") before planning or editing**, then the pages it
 names. The wiki holds the conventions, the decisions and their reasons, and the known gaps. The

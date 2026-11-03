@@ -1,5 +1,6 @@
 {
   "enabledMcpjsonServers": [
-    "qmd"
+    "qmd",
+    "autocad-mcp"
   ]
 }
