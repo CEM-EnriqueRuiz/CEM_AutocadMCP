@@ -4,7 +4,7 @@ Measured on 2026-10-24 on a Civil 3D 2027 drawing (6,947 layers, 958 entities): 
 ~65 ms per entity read, 1.7-3 s per Regen. Listing every layer took ~5 minutes, so get_drawing_info
 timed out; a Regen after every created line made a thick rectangle take ~30-50 s."""
 from autocad_mcp import server as server_module
-from fake_acad import FakeApp, FakeDocument
+from fake_acad import FakeDocument
 
 
 def big_drawing(app, layers):

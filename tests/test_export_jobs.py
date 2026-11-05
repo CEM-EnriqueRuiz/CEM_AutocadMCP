@@ -15,7 +15,7 @@ from autocad_mcp import export as export_module
 from autocad_mcp.export import ExportJob, ExportJobs, Limits, reserve
 from autocad_mcp.temp_files import TempFolder
 from export_drawing_fake import drawing_with_everything, total_entities
-from fake_acad import FakeApp, FakeDocument, FakeEntity
+from fake_acad import FakeDocument, FakeEntity
 
 NOW = datetime(2026, 11, 1, 10, 0, 0)
 

@@ -2,7 +2,7 @@
 title: "0003 — Nothing writes under ACC or beside its script; logs go to a self-cleaning temp folder"
 type: decision
 status: current
-updated: 2026-11-01
+updated: 2026-11-05
 sources: [https://github.com/CEMENGAL/CEM_Workspace/issues/5, "the user, 2026-10-24: no logs or other files in an ACC path; logs in a local temp folder that cleans itself", "the user, 2026-10-25: only the MCPs were in question; they are strict", https://github.com/CEM-EnriqueRuiz/CEM_API/issues/82, autocad_mcp/temp_files.py, setup_claude.ps1, diag_com.py, live_test.py, tests/test_no_acc_writes.py, tests/test_temp_files.py, tests/test_setup_prune.py]
 related: [../../../../docs/decisions/0031-nothing-writes-under-acc-logs-in-local-temp.md, ../modules/temp-files.md, ../modules/scripts.md, 0004-reads-never-modify-the-drawing.md]
 tags: [acc, logs, temp, guard]
@@ -73,7 +73,9 @@ design); this repo is an MCP server, so it has none. The audit of 2026-10-24 fou
 ## Consequences
 
 - The three old logs beside the scripts (`diag_log.txt`, `live_test_log.txt`, `setup_log.txt`, written
-  2026-10-17/18) stay where they are, untracked and ignored by `.gitignore`, for the user to delete.
+  2026-10-17/18) stay where they are, untracked and ignored by `.gitignore`, for the user to delete. Superseded
+  2026-11-05 by root [0037](../../../../docs/decisions/0037-code-follows-the-tables.md) (nothing temporary stays in a
+  repo): the maintenance review moved them out and dropped their `.gitignore` lines ([known gaps](../concepts/known-gaps.md) 11).
 - A future tool that writes an artefact (a screenshot, an export) uses `TempFolder().artefact_dir(kind)`.
 - The guard is static, so a new write form it does not know (for example a new library writer) needs a line
   in the test.

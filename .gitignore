@@ -2,7 +2,3 @@
 __pycache__/
 *.egg-info/
 .pytest_cache/
-# Old dev logs: the scripts write beside themselves no more; logs go to %TEMP%\Cemengal\AutocadMCP (docs/decisions/0003)
-setup_log.txt
-diag_log.txt
-live_test_log.txt

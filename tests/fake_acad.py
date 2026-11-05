@@ -143,7 +143,7 @@ class FakeDocument:
 
     @property
     def FullName(self):
-        return f"{self.Path}\{self.Name}" if self.Path else ""
+        return f"{self.Path}\\{self.Name}" if self.Path else ""
 
     def GetVariable(self, name):
         return self.variables[name.upper()]

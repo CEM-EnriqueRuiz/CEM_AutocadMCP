@@ -1,7 +1,7 @@
 ---
 title: "Wiki log"
 type: log
-updated: 2026-10-25
+updated: 2026-11-05
 sources: []
 related:
   - index.md
@@ -146,3 +146,14 @@ link and with reviews skipped. `.mcp.json` gained a relative `autocad-mcp` entry
 rejected alternatives. Corrected what said only Claude Desktop starts the server:
 [connect an agent](workflows/connect-an-agent.md), [scripts](modules/scripts.md), [server](modules/server.md),
 [overview](overview.md), [index](index.md), `CLAUDE.md` and the skill. Not pushed.
+
+## [2026-11-05] ingest | Overnight maintenance review
+
+The overnight maintenance review (run `run_00597272b2d2`) left five items uncommitted; the user said on 2026-11-05 to
+commit them with no issue link and without the QA and security reviews. Applied: the two invalid-escape
+`SyntaxWarning`s in the tests fixed (A1); four unused names removed, `APPROXIMATE_UNITS` among them (A2); upstream's
+tracked `cpython-312` bytecode deleted, closing [known gap](concepts/known-gaps.md) 8 (A3); the three old dev logs
+moved out of the repo and their `.gitignore` lines dropped, closing gap 11 (A4); wiki drift fixed, with
+`delete_entity_by_handle`'s missing model-space bound recorded as gap 18 (A5). 196 passed, 1 skipped, 0 warnings.
+Recorded in [sources/commits/2026-11](sources/commits/2026-11.md) with the decisions and the proposals not applied
+(P1–P9); [upstream and fork](concepts/upstream-and-fork.md) notes the bytecode's deletion. Not pushed.

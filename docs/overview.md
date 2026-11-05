@@ -1,7 +1,7 @@
 ---
 title: "CEM_AutocadMCP — overview"
 type: overview
-updated: 2026-11-04
+updated: 2026-11-05
 sources: [README.md, autocad_mcp/server.py, pyproject.toml, setup_claude.ps1]
 related: [index.md, concepts/upstream-and-fork.md, modules/server.md, concepts/com-connection.md]
 tags: [overview]
@@ -22,10 +22,11 @@ Claude Code, Claude Desktop ──stdio (MCP)──> .venv\Scripts\python.exe -m
 - **No plugin inside AutoCAD.** Unlike CEM_RevitMCP, CEM_NavisworksMCP or CEM_Civil3DMCP (which load an add-in
   and listen on a port), this server is an out-of-process COM client. Nothing is deployed into AutoCAD, and
   nothing to ACC or `ApplicationPlugins`.
-- **One Python file does the work:** `autocad_mcp/server.py`, 24 tools to read the drawing, draw lines, circles,
+- **Four Python modules:** `autocad_mcp/server.py` holds the 24 tools, to read the drawing, draw lines, circles,
   arcs, text, rectangles and simple building elements on predefined layers, recolour, and delete
-  ([server](modules/server.md)), and to export a whole drawing to JSON in the background
-  ([export](modules/export.md), [0006](decisions/0006-background-export-jobs.md)).
+  ([server](modules/server.md)), and to export a whole drawing to JSON in the background; `export.py` and
+  `export_text.py` do that export ([export](modules/export.md), [0006](decisions/0006-background-export-jobs.md));
+  `temp_files.py` is the self-cleaning temp folder ([temp-files](modules/temp-files.md)).
 - **It connects on the first tool call**, through every registered `AutoCAD.Application.*` ProgID
   ([0002](decisions/0002-lazy-connection-and-progid-discovery.md), [COM connection](concepts/com-connection.md)).
 - **Reads change nothing; nothing is saved** ([0004](decisions/0004-reads-never-modify-the-drawing.md)), and every

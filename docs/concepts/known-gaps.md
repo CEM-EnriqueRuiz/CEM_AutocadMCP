@@ -1,7 +1,7 @@
 ---
 title: "Known gaps — what is missing, unverified or risky"
 type: concept
-updated: 2026-11-01
+updated: 2026-11-05
 sources: [autocad_mcp/server.py, README.md, live_test.py, "live runs 2026-10-24", ".venv/Lib/site-packages/win32com/client/dynamic.py", tests/test_busy_race.py, tests/test_no_drawing.py]
 related: [../modules/server.md, export-schema.md, ../concepts/com-connection.md, ../workflows/live-test.md, ../decisions/0005-every-call-ends-inside-the-host-timeout.md]
 tags: [gaps, risks]
@@ -30,15 +30,18 @@ tags: [gaps, risks]
    `create_or_get_layer` with a `name` argument, `delete_entities_by_handles` as a batch example before it
    existed) and an `autocad_mcp.AutoCADCOMServer` import that the package does not export. The code and this
    wiki win; the README's Claude Desktop section is current.
-8. **Committed bytecode.** `autocad_mcp/__pycache__/*.cpython-312.pyc` came from upstream and are tracked;
-   `.gitignore` ignores new ones. They stayed tracked and unchanged in the fork's first commit (#82, 2026-10-25),
-   on the coordinator's instruction; remove them from the index in a change of their own (`git rm --cached`).
+8. **Closed 2026-11-05: committed bytecode.** `autocad_mcp/__pycache__/*.cpython-312.pyc` came from upstream and
+   were tracked (unchanged in the fork's first commit, #82, on the coordinator's instruction). The maintenance review
+   of 2026-11-05 deleted them: bytecode of upstream's 2025 `server.py`, which the `.venv`'s Python 3.13 never loads.
+   `.gitignore` ignores the ones the interpreter writes.
 9. **`__pycache__` is written beside the modules** by the Python interpreter. Harmless on a local checkout; it
    would sync if the repo were ever run from ACC, which the setup refuses
    ([0003](../decisions/0003-no-writes-under-acc-or-beside-scripts.md)).
 10. **`test_script.py` modifies the active drawing** and does not clean up ([scripts](../modules/scripts.md)).
-11. **The three old dev logs** (`diag_log.txt`, `live_test_log.txt`, `setup_log.txt`, 2026-10-17/18) are still
-    beside the scripts, untracked and ignored, for the user to delete.
+11. **Closed 2026-11-05: the three old dev logs** (`diag_log.txt`, `live_test_log.txt`, `setup_log.txt`,
+    2026-10-17/18) were moved out of the repo by the maintenance review (root
+    [0037](../../../../docs/decisions/0037-code-follows-the-tables.md): nothing temporary stays in a repo), and their
+    `.gitignore` lines went with them. No script writes beside itself (`tests/test_no_acc_writes.py`).
 12. **Closed 2026-10-24: a busy AutoCAD surfacing as `AttributeError`.** pywin32's late binding
     (`win32com/client/dynamic.py`, `__getattr__`) swallows a refused name lookup and raises
     `AttributeError("<object>.<name>")`; seen live right after launching plain AutoCAD and during
@@ -76,3 +79,11 @@ tags: [gaps, risks]
     the export: Refusing to write through a junction or link…" instead of writing
     ([0003](../decisions/0003-no-writes-under-acc-or-beside-scripts.md) point 6); `setup_claude.ps1` refuses the same
     before writing its transcript.
+18. **`delete_entity_by_handle` is not bounded to model space** (found 2026-11-05 by the maintenance review, with the
+    fakes; not run live). Unlike `delete_entities_by_handles`, it deletes whatever object `HandleToObject` returns,
+    so the handle of a layer, a block definition or a style deletes that object when AutoCAD allows it; the fake
+    lost a layer this way and the tool answered `success`. When `HandleToObject` fails it scans model space
+    (case-sensitive), as slow as a bulk delete (item 1); after the delete it `Regen`s (one entity took 1.37–1.45 s live on
+    2026-10-24, six took 0.15–0.17 s through the plural); and `safe_operation`'s `None` is ignored, so a refused delete still answers `success`.
+    The fix proposed to the user: the plural's path ([0005](../decisions/0005-every-call-ends-inside-the-host-timeout.md),
+    [server](../modules/server.md)).

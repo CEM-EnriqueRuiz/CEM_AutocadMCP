@@ -1,7 +1,7 @@
 ---
 title: "server — autocad_mcp/server.py, the MCP server"
 type: module
-updated: 2026-11-04
+updated: 2026-11-05
 sources: [autocad_mcp/server.py, pyproject.toml, tests/test_tool_contract.py]
 related: [export.md, ../concepts/com-connection.md, ../decisions/0002-lazy-connection-and-progid-discovery.md, ../decisions/0004-reads-never-modify-the-drawing.md, ../decisions/0005-every-call-ends-inside-the-host-timeout.md, temp-files.md]
 tags: [module, mcp, com]
@@ -38,7 +38,7 @@ listed) before the handler's own `Unknown tool` branch.
 | Create | `create_line`, `create_circle`, `create_rectangle`, `create_text`, `create_arc`, `create_structure` | `thickness > 0` draws parallels and caps; `show()` redraws each entity, no `Regen` |
 | Layers | `create_or_get_layer`, `set_current_layer` | on failure they say why (not connected, or the layer) |
 | Edit | `change_entity_color`, `zoom_extents`, `undo_last_operation` | undo sends AutoCAD's `U` with `SendCommand`: it undoes whatever ran last |
-| Delete | `delete_entity_by_handle`, `delete_entities_by_handles` | by `HandleToObject`, model space only |
+| Delete | `delete_entity_by_handle`, `delete_entities_by_handles` | the plural: by `HandleToObject`, model space only (`OwnerID`), no scan, no `Regen`. The singular is not: it deletes whatever object the handle names, scans model space when `HandleToObject` fails, `Regen`s, and answers `success` even when the delete failed ([known gaps](../concepts/known-gaps.md) 18) |
 | Bulk delete | `delete_entities_by_type`, `_by_layer`, `_by_color`, `_by_type_and_color`, `delete_last_entities`, `delete_all_entities(confirm)` | scan model space (`_snapshot_entities`, `_delete_where`); slow on large drawings |
 | Export | `export_drawing(document?, max_entities?, max_seconds?, max_bytes?, block_depth?)`, `get_export_status(job_id)`, `cancel_export(job_id)` | a background job, read only, one JSON under `%TEMP%\Cemengal\AutocadMCP\exports\`; status and cancel need no connection ([export](export.md), [0006](../decisions/0006-background-export-jobs.md)) |
 

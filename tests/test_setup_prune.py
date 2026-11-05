@@ -92,7 +92,7 @@ def test_setup_creates_the_classic_config_when_there_is_none(tmp_path):
 
 @pytest.mark.skipif(POWERSHELL is None, reason="needs Windows PowerShell")
 def test_setup_prune_follows_the_exports_rule(tmp_path):
-    """The twin keeps exports\ as TempFolder does (known gap 16): the last 3, 7 days, never the newest."""
+    """The twin keeps exports\\ as TempFolder does (known gap 16): the last 3, 7 days, never the newest."""
     from test_temp_files import exports_scenario
     kept, deleted = exports_scenario(tmp_path)
     run_prune(tmp_path, max_bytes=250)

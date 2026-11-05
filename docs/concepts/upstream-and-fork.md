@@ -1,9 +1,9 @@
 ---
 title: "Upstream and fork — what is theirs, what is ours"
 type: concept
-updated: 2026-10-24
+updated: 2026-11-05
 sources: [README.md, LICENSE, "git log upstream/main", autocad_mcp/server.py]
-related: [../decisions/0001-minimal-marked-divergence-from-upstream.md, ../sources/commits/2025-07.md, ../sources/issues/CEM-EnriqueRuiz-CEM_API-82.md]
+related: [../decisions/0001-minimal-marked-divergence-from-upstream.md, ../sources/commits/2025-07.md, ../sources/issues/CEM-EnriqueRuiz-CEM_API-82.md, ../sources/commits/2026-11.md]
 tags: [fork, upstream]
 ---
 
@@ -27,7 +27,8 @@ tags: [fork, upstream]
 - Every `Regen` used `constants.acActiveViewport`, empty without makepy, so it threw (and, inside
   `safe_operation`, made the create return `None`).
 - `pyproject.toml`'s script pointed at `main`, a coroutine; the README configured Claude with `test_script.py`.
-- Compiled `autocad_mcp/__pycache__/*.cpython-312.pyc` files are committed.
+- Compiled `autocad_mcp/__pycache__/*.cpython-312.pyc` files are committed. The fork deleted them on 2026-11-05
+  ([known gaps](known-gaps.md) 8, [sources/commits/2026-11](../sources/commits/2026-11.md)).
 
 ## What changed
 

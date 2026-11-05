@@ -1,7 +1,7 @@
 ---
 title: "Test — the pytest suite and what it cannot cover"
 type: workflow
-updated: 2026-11-01
+updated: 2026-11-05
 sources: [tests/, pyproject.toml, ../../docs/workflows/tdd-and-test-runner.md, ../../.claude/run-tests.ps1]
 related: [live-test.md, ../modules/server.md, ../modules/temp-files.md, ../decisions/0003-no-writes-under-acc-or-beside-scripts.md]
 tags: [test, pytest, tdd]
@@ -11,7 +11,7 @@ tags: [test, pytest, tdd]
 
 ```powershell
 .venv\Scripts\python.exe -m pip install -e ".[dev]"   # once: pytest into the .venv
-.venv\Scripts\python.exe -m pytest -q                 # 196 tests + 1 skip, ~5 s, no AutoCAD needed
+.venv\Scripts\python.exe -m pytest -q                 # 196 tests + 1 skip, ~20 s, no AutoCAD needed
 ```
 
 TDD is the default for new logic: a failing test first, read why it fails, then the code

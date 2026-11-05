@@ -15,7 +15,6 @@ SCIENTIFIC, DECIMAL, ENGINEERING, ARCHITECTURAL, FRACTIONAL, WINDOWS = 1, 2, 3, 
 # AcDimUnits (AltUnitsFormat) numbers the same formats differently; stacked and unstacked map to one
 ALT_TO_LINEAR = {1: SCIENTIFIC, 2: DECIMAL, 3: ENGINEERING, 4: ARCHITECTURAL, 5: FRACTIONAL,
                  6: ARCHITECTURAL, 7: FRACTIONAL, 8: WINDOWS}
-APPROXIMATE_UNITS = {ENGINEERING, ARCHITECTURAL, FRACTIONAL, WINDOWS}
 # AcAngleUnits (AngleFormat): 0 decimal degrees, 1 degrees-minutes-seconds, 2 grads, 3 radians
 DEGREES, DMS, GRADS, RADIANS = 0, 1, 2, 3
 ANGULAR = {"angular"}

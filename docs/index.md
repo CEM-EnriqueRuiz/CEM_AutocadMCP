@@ -1,7 +1,7 @@
 ---
 title: "CEM_AutocadMCP wiki — index"
 type: index
-updated: 2026-11-04
+updated: 2026-11-05
 sources: [README.md, autocad_mcp/server.py, CLAUDE.md]
 related: [overview.md, log.md]
 tags: [index]
@@ -48,7 +48,7 @@ Python MCP server over stdio (`autocad_mcp/server.py`) that drives a running Aut
 | Setup, the `.venv`, `.mcp.json`, Claude Desktop's config | [connect an agent](workflows/connect-an-agent.md), [scripts](modules/scripts.md) |
 | Testing against a live AutoCAD | [live test](workflows/live-test.md) |
 | Pulling from upstream | [upstream and fork](concepts/upstream-and-fork.md), [0001](decisions/0001-minimal-marked-divergence-from-upstream.md) |
-| Anything | [known gaps](concepts/known-gaps.md): bulk deletes scan model space, undo is not ours, several tools not run live |
+| Anything | [known gaps](concepts/known-gaps.md): bulk deletes scan model space, `delete_entity_by_handle` is not bounded to it, undo is not ours, several tools not run live |
 
 **4. Test and verify:** [test](workflows/test.md) with `.venv\Scripts\python.exe -m pytest -q`, then the
 [live test](workflows/live-test.md) through MCP for anything COM-bound.
@@ -98,7 +98,7 @@ Python MCP server over stdio (`autocad_mcp/server.py`) that drives a running Aut
 
 - [commits 2025-07](sources/commits/2025-07.md): upstream's six commits.
 - [commits 2026-10](sources/commits/2026-10.md): none without an issue; the record moved to #82.
-- [commits 2026-11](sources/commits/2026-11.md): `autocad-mcp` declared in `.mcp.json`; the earlier record moved to CEM_Workspace#5.
+- [commits 2026-11](sources/commits/2026-11.md): `autocad-mcp` declared in `.mcp.json`; the 2026-11-05 maintenance review (applied items, proposals P1–P9); the earlier record moved to CEM_Workspace#5.
 
 ### Issues
 
